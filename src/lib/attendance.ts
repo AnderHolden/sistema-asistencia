@@ -207,21 +207,23 @@ export async function deleteImportedAttendance(startDate: string, endDate: strin
   const snapshot = await getDocs(
     query(
       collection(db, "attendance_children"),
-      where("registered_by", "==", "csv-import"),
-      where("attendance_date", ">=", startDate),
-      where("attendance_date", "<=", endDate)
+      where("registered_by", "==", "csv-import")
     )
   );
 
-  if (snapshot.empty) return 0;
+  const docsToDelete = snapshot.docs.filter(d => {
+    const date = d.data().attendance_date;
+    return date >= startDate && date <= endDate;
+  });
+
+  if (docsToDelete.length === 0) return 0;
 
   const batchSize = 500;
   let deleted = 0;
-  const docs = snapshot.docs;
 
-  for (let i = 0; i < docs.length; i += batchSize) {
+  for (let i = 0; i < docsToDelete.length; i += batchSize) {
     const batch = writeBatch(db);
-    const chunk = docs.slice(i, i + batchSize);
+    const chunk = docsToDelete.slice(i, i + batchSize);
     for (const d of chunk) {
       batch.delete(d.ref);
     }
