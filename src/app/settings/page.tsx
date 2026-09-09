@@ -33,7 +33,15 @@ export default function SettingsPage() {
   const [auditDateFrom, setAuditDateFrom] = useState("");
   const [auditDateTo, setAuditDateTo] = useState("");
   const [csvImportLoading, setCsvImportLoading] = useState(false);
-  const [csvImportResult, setCsvImportResult] = useState<{ imported: number; unmatched: number; unmatchedNames: string[] } | null>(null);
+  const [csvImportResult, setCsvImportResult] = useState<{
+    imported: number;
+    skippedExisting: number;
+    unmatchedCount: number;
+    unmatched: { name: string; date: string; row: number }[];
+    matchedDetails: { name: string; childName: string; date: string; status: string; strategy: string }[];
+    skippedRows: { row: number; reason: string; data: string }[];
+    headerDetected: string[];
+  } | null>(null);
   const [deleteImportedLoading, setDeleteImportedLoading] = useState(false);
 
   useEffect(() => { loadSettings(); }, []);
@@ -355,8 +363,8 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith(".csv")) {
-      toast.error("El archivo debe ser .csv");
+    if (!file.name.endsWith(".csv") && !file.name.endsWith(".txt") && !file.name.endsWith(".tsv")) {
+      toast.error("El archivo debe ser .csv, .txt o .tsv");
       e.target.value = "";
       return;
     }
@@ -381,19 +389,30 @@ export default function SettingsPage() {
 
       setCsvImportResult({
         imported: result.imported,
-        unmatched: result.unmatched,
-        unmatchedNames: result.unmatchedNames || [],
+        skippedExisting: result.skippedExisting,
+        unmatchedCount: result.unmatchedCount,
+        unmatched: result.unmatched || [],
+        matchedDetails: result.matchedDetails || [],
+        skippedRows: result.skippedRows || [],
+        headerDetected: result.headerDetected || [],
       });
 
       if (result.imported > 0) {
         toast.success(`${result.imported} registros importados`);
       }
-      if (result.unmatched > 0) {
-        toast.error(`${result.unmatched} registros no coincidieron`);
+      if (result.unmatchedCount > 0) {
+        toast.error(`${result.unmatchedCount} registros no coincidieron`);
+      }
+      if (result.skippedExisting > 0) {
+        toast(`ℹ️ ${result.skippedExisting} registros ya existían`, { icon: "ℹ️" });
       }
 
       if (result.imported > 0) {
-        await logAction("import", "attendance_children", null, { imported: result.imported, unmatched: result.unmatched });
+        await logAction("import", "attendance_children", null, {
+          imported: result.imported,
+          skippedExisting: result.skippedExisting,
+          unmatched: result.unmatchedCount,
+        });
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Error al importar CSV");
@@ -596,30 +615,94 @@ export default function SettingsPage() {
 
         {csvImportResult && (
           <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold text-gray-900 dark:text-white">Resultado de la importación</h4>
               <button onClick={() => setCsvImportResult(null)} className="text-gray-400 hover:text-gray-600"><XCircleIcon className="w-5 h-5" /></button>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+
+            {csvImportResult.headerDetected.length > 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Columnas detectadas: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{csvImportResult.headerDetected.join(" | ")}</code></p>
+            )}
+
+            <div className="grid grid-cols-3 gap-2 text-sm mb-4">
               <div className="bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-lg">
-                <p className="text-emerald-600 dark:text-emerald-400 font-semibold">{csvImportResult.imported}</p>
-                <p className="text-emerald-500 dark:text-emerald-300 text-xs">Registros importados</p>
+                <p className="text-emerald-600 dark:text-emerald-400 font-bold text-lg">{csvImportResult.imported}</p>
+                <p className="text-emerald-500 dark:text-emerald-300 text-xs">Importados</p>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg">
+                <p className="text-amber-600 dark:text-amber-400 font-bold text-lg">{csvImportResult.skippedExisting}</p>
+                <p className="text-amber-500 dark:text-amber-300 text-xs">Ya existían</p>
               </div>
               <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
-                <p className="text-red-600 dark:text-red-400 font-semibold">{csvImportResult.unmatched}</p>
-                <p className="text-red-500 dark:text-red-300 text-xs">No coincidieron</p>
+                <p className="text-red-600 dark:text-red-400 font-bold text-lg">{csvImportResult.unmatchedCount}</p>
+                <p className="text-red-500 dark:text-red-300 text-xs">No encontrados</p>
               </div>
             </div>
-            {csvImportResult.unmatchedNames && csvImportResult.unmatchedNames.length > 0 && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-sm font-medium text-gray-600 dark:text-gray-400">
-                  Ver nombres no coincidentes ({csvImportResult.unmatchedNames.length})
+
+            {csvImportResult.matchedDetails.length > 0 && (
+              <details className="mb-3" open>
+                <summary className="cursor-pointer text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                  Registros importados ({csvImportResult.matchedDetails.length})
                 </summary>
-                <ul className="mt-2 text-xs text-gray-500 dark:text-gray-400 max-h-40 overflow-y-auto space-y-1">
-                  {csvImportResult.unmatchedNames.map((name, i) => (
-                    <li key={i}>• {name}</li>
-                  ))}
-                </ul>
+                <div className="mt-2 max-h-60 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700"><th className="py-1">Nombre CSV</th><th className="py-1">Coincidió con</th><th className="py-1">Fecha</th><th className="py-1">Estado</th></tr></thead>
+                    <tbody>
+                      {csvImportResult.matchedDetails.map((m, i) => (
+                        <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
+                          <td className="py-1 text-gray-700 dark:text-gray-300">{m.name}</td>
+                          <td className="py-1 text-gray-900 dark:text-white font-medium">{m.childName}</td>
+                          <td className="py-1 text-gray-500">{m.date}</td>
+                          <td className={`py-1 font-medium ${m.status === "Presente" ? "text-emerald-500" : "text-red-500"}`}>{m.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+
+            {csvImportResult.unmatched.length > 0 && (
+              <details className="mb-3">
+                <summary className="cursor-pointer text-sm font-medium text-red-600 dark:text-red-400">
+                  Registros NO encontrados ({csvImportResult.unmatched.length})
+                </summary>
+                <div className="mt-2 max-h-60 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700"><th className="py-1">Línea</th><th className="py-1">Nombre</th><th className="py-1">Fecha</th></tr></thead>
+                    <tbody>
+                      {csvImportResult.unmatched.map((u, i) => (
+                        <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
+                          <td className="py-1 text-gray-500">{u.row}</td>
+                          <td className="py-1 text-gray-700 dark:text-gray-300">{u.name}</td>
+                          <td className="py-1 text-gray-500">{u.date}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+
+            {csvImportResult.skippedRows.length > 0 && (
+              <details className="mb-3">
+                <summary className="cursor-pointer text-sm font-medium text-amber-600 dark:text-amber-400">
+                  Filas omitidas por errores ({csvImportResult.skippedRows.length})
+                </summary>
+                <div className="mt-2 max-h-40 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700"><th className="py-1">Línea</th><th className="py-1">Razón</th><th className="py-1">Datos</th></tr></thead>
+                    <tbody>
+                      {csvImportResult.skippedRows.map((s, i) => (
+                        <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
+                          <td className="py-1 text-gray-500">{s.row}</td>
+                          <td className="py-1 text-amber-600 dark:text-amber-400">{s.reason}</td>
+                          <td className="py-1 text-gray-500 truncate max-w-[200px]">{s.data}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </details>
             )}
           </div>

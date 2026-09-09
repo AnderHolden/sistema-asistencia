@@ -6,7 +6,7 @@ function normalizeName(name: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[.,]/g, "")
+    .replace(/[.,;:]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -16,60 +16,52 @@ function similarity(a: string, b: string): number {
   const setB = new Set(b.split(" "));
   const intersection = new Set([...setA].filter(x => setB.has(x)));
   const union = new Set([...setA, ...setB]);
-  return intersection.size / union.size;
+  return union.size === 0 ? 0 : intersection.size / union.size;
 }
 
 function fixEncoding(text: string): string {
   return text
-    .replace(/Ã¡/g, "á")
-    .replace(/Ã©/g, "é")
-    .replace(/Ã­/g, "í")
-    .replace(/Ã³/g, "ó")
-    .replace(/Ãº/g, "ú")
-    .replace(/Ã±/g, "ñ")
-    .replace(/Ã/g, "Á")
-    .replace(/Ã‰/g, "É")
-    .replace(/Ã/g, "Í")
-    .replace(/Ã“/g, "Ó")
-    .replace(/Ãš/g, "Ú")
-    .replace(/Ã‘/g, "Ñ")
-    .replace(/Ã¼/g, "ü")
-    .replace(/Ãœ/g, "Ü");
+    .replace(/Ã¡/g, "\u00e1").replace(/Ã©/g, "\u00e9").replace(/Ã­/g, "\u00ed")
+    .replace(/Ã³/g, "\u00f3").replace(/Ãº/g, "\u00fa").replace(/Ã±/g, "\u00f1")
+    .replace(/Ã\x81/g, "\u00c1").replace(/Ã‰/g, "\u00c9").replace(/Ã\x8d/g, "\u00cd")
+    .replace(/Ã"/g, "\u00d3").replace(/Ãš/g, "\u00da").replace(/Ã‘/g, "\u00d1")
+    .replace(/Ã¼/g, "\u00fc").replace(/Ãœ/g, "\u00dc");
 }
 
-// Try multiple matching strategies
-function findChildMatch(recordNormName: string, nameToChild: Map<string, any>): any {
+function findChildMatch(recordNormName: string, children: Array<{ id: string; normName: string; name: string }>): { child: typeof children[0]; strategy: string } | null {
   // 1. Exact match
-  if (nameToChild.has(recordNormName)) {
-    return nameToChild.get(recordNormName);
+  for (const child of children) {
+    if (child.normName === recordNormName) {
+      return { child, strategy: "exact" };
+    }
   }
 
   // 2. Try matching by parts (first name + last name combinations)
   const recordParts = recordNormName.split(" ").filter(p => p.length > 2);
   if (recordParts.length >= 2) {
-    for (const [key, child] of nameToChild.entries()) {
-      const keyParts = key.split(" ");
+    for (const child of children) {
+      const keyParts = child.normName.split(" ");
       const firstMatch = recordParts.some(rp => keyParts.some(kp => kp.startsWith(rp) || rp.startsWith(kp)));
       const lastMatch = recordParts.some(rp => keyParts.some(kp => kp.endsWith(rp) || rp.endsWith(kp)));
       if (firstMatch && lastMatch) {
-        return child;
+        return { child, strategy: "parts" };
       }
     }
   }
 
   // 3. Fuzzy similarity (Jaccard on words)
-  let bestMatch = null;
+  let bestMatch: typeof children[0] | null = null;
   let bestScore = 0;
   
-  for (const [key, child] of nameToChild.entries()) {
-    const score = similarity(recordNormName, key);
-    if (score > 0.65 && score > (bestScore || 0)) {
+  for (const child of children) {
+    const score = similarity(recordNormName, child.normName);
+    if (score > 0.6 && score > bestScore) {
       bestScore = score;
       bestMatch = child;
     }
   }
   
-  return bestMatch;
+  return bestMatch ? { child: bestMatch, strategy: `fuzzy(${Math.round(bestScore * 100)}%)` } : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -81,39 +73,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No se envió archivo" }, { status: 400 });
     }
 
-    if (!file.name.endsWith(".csv")) {
-      return NextResponse.json({ error: "El archivo debe ser .csv" }, { status: 400 });
+    if (!file.name.endsWith(".csv") && !file.name.endsWith(".txt") && !file.name.endsWith(".tsv")) {
+      return NextResponse.json({ error: "El archivo debe ser .csv, .txt o .tsv" }, { status: 400 });
     }
 
-    // Read file as array buffer to handle encoding
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Try to detect encoding and decode properly
+
+    // Try UTF-8 first, then Latin1
     let text: string;
+    const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
     try {
-      // Try UTF-8 first
-      text = new TextDecoder("utf-8").decode(uint8Array);
+      text = utf8Decoder.decode(uint8Array);
     } catch {
-      // Fallback to Latin1 (common for Excel exports in Spanish)
       text = new TextDecoder("latin1").decode(uint8Array);
     }
-    
-    // Fix common encoding issues
+
     text = fixEncoding(text);
 
-    const lines = text.trim().split("\n");
+    // Detect delimiter (comma, tab, or semicolon)
+    const firstLine = text.split("\n")[0];
+    let delimiter = ",";
+    if (firstLine.includes("\t")) delimiter = "\t";
+    else if (firstLine.includes(";")) delimiter = ";";
 
-    // Parse CSV (simple parser, handles quoted fields)
-    const parseCSV = (text: string): string[][] => {
+    // Parse CSV
+    const parseCSV = (csvText: string, sep: string): string[][] => {
       const result: string[][] = [];
       let current = "";
       let inQuotes = false;
       let row: string[] = [];
 
-      for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        const nextChar = text[i + 1];
+      for (let i = 0; i < csvText.length; i++) {
+        const char = csvText[i];
+        const nextChar = csvText[i + 1];
 
         if (char === '"') {
           if (inQuotes && nextChar === '"') {
@@ -122,13 +115,13 @@ export async function POST(req: NextRequest) {
           } else {
             inQuotes = !inQuotes;
           }
-        } else if (char === "," && !inQuotes) {
+        } else if (char === sep && !inQuotes) {
           row.push(current);
           current = "";
         } else if ((char === "\n" || char === "\r") && !inQuotes) {
           if (char === "\r" && nextChar === "\n") i++;
           row.push(current);
-          result.push(row);
+          if (row.some(c => c.trim())) result.push(row);
           row = [];
           current = "";
         } else {
@@ -137,146 +130,166 @@ export async function POST(req: NextRequest) {
       }
       if (current || row.length > 0) {
         row.push(current);
-        result.push(row);
+        if (row.some(c => c.trim())) result.push(row);
       }
       return result;
     };
 
-    const parsed = parseCSV(text);
+    const parsed = parseCSV(text, delimiter);
 
     if (parsed.length < 2) {
-      return NextResponse.json({ error: "CSV vacío o inválido" }, { status: 400 });
+      return NextResponse.json({ error: "CSV vacío o inválido (menos de 2 líneas)" }, { status: 400 });
     }
 
-    // Detect if the entire row is wrapped in quotes as a single field
-    // e.g., "Fecha,Nombre,Estado" instead of "Fecha","Nombre","Estado"
-    const rows = parsed.map(row => {
-      if (row.length === 1 && row[0].includes(",")) {
-        return row[0].split(",").map(c => c.replace(/^"|"$/g, "").trim());
-      }
-      return row;
-    });
-
-    // Find column indices
-    const header = rows[0].map(h => h.toLowerCase().trim());
+    const header = parsed[0].map(h => h.toLowerCase().trim());
     const fechaIdx = header.findIndex(h => h.includes("fecha"));
     const nombreIdx = header.findIndex(h => h.includes("nombre"));
     const estadoIdx = header.findIndex(h => h.includes("asist") || h.includes("estado"));
 
+    // Build details for debugging
+    const headerInfo = parsed[0].map((h, i) => `[${i}] "${h}"`).join(", ");
+    console.log(`[Import] Header: ${headerInfo}`);
+    console.log(`[Import] Indices - fecha:${fechaIdx} nombre:${nombreIdx} estado:${estadoIdx}`);
+    console.log(`[Import] Delimiter: "${delimiter === "\t" ? "TAB" : delimiter}"`);
+    console.log(`[Import] Total rows: ${parsed.length - 1}`);
+
     if (fechaIdx === -1 || nombreIdx === -1 || estadoIdx === -1) {
-      return NextResponse.json({ 
-        error: "CSV debe tener columnas: Fecha, Nombre Completo, Estado" 
+      return NextResponse.json({
+        error: `Columnas no encontradas. Header detectado: "${parsed[0].join(", ")}". Se esperaba: Fecha, Nombre, Estado/Asistencia`,
+        headerDetected: parsed[0],
       }, { status: 400 });
     }
 
-    // Parse records
-    const records: { name: string; normName: string; date: string; status: "present" | "absent" }[] = [];
-    
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.length <= Math.max(fechaIdx, nombreIdx, estadoIdx)) continue;
+    // Parse records with details
+    interface ImportRecord {
+      rowNumber: number;
+      name: string;
+      normName: string;
+      date: string;
+      status: "present" | "absent";
+      rawEstado: string;
+    }
 
-      const fecha = row[fechaIdx]?.trim();
-      const nombre = row[nombreIdx]?.trim();
+    const records: ImportRecord[] = [];
+    const skippedRows: { row: number; reason: string; data: string }[] = [];
+
+    for (let i = 1; i < parsed.length; i++) {
+      const row = parsed[i];
+      const rowStr = row.join(", ");
+
+      if (row.length <= Math.max(fechaIdx, nombreIdx, estadoIdx)) {
+        skippedRows.push({ row: i + 1, reason: "Pocas columnas", data: rowStr });
+        continue;
+      }
+
+      const fecha = row[fechaIdx]?.trim() || "";
+      const nombre = row[nombreIdx]?.trim() || "";
       const estadoRaw = row[estadoIdx]?.toLowerCase().trim() || "";
 
-      if (!fecha || !nombre) continue;
+      if (!fecha || !nombre) {
+        skippedRows.push({ row: i + 1, reason: !fecha ? "Sin fecha" : "Sin nombre", data: rowStr });
+        continue;
+      }
 
-      const status = estadoRaw.includes("no asist") ? "absent" : estadoRaw.includes("asist") ? "present" : "absent";
+      let status: "present" | "absent" = "absent";
+      if (estadoRaw.includes("no asist")) status = "absent";
+      else if (estadoRaw.includes("asist")) status = "present";
+      else if (estadoRaw.includes("presente") || estadoRaw === "p" || estadoRaw === "1") status = "present";
+      else if (estadoRaw.includes("ausente") || estadoRaw === "a" || estadoRaw === "0") status = "absent";
 
-      // Fix encoding on the name
-      const fixedName = fixEncoding(nombre.trim());
-
+      const fixedName = fixEncoding(nombre);
       records.push({
+        rowNumber: i + 1,
         name: fixedName,
         normName: normalizeName(fixedName),
         date: fecha,
         status,
+        rawEstado: estadoRaw,
       });
     }
 
     if (records.length === 0) {
-      return NextResponse.json({ error: "No se encontraron registros válidos" }, { status: 400 });
+      return NextResponse.json({ error: "No se encontraron registros válidos", skippedRows }, { status: 400 });
     }
 
-    console.log(`[Import] Processing ${records.length} records`);
+    console.log(`[Import] Parsed ${records.length} valid records, ${skippedRows.length} skipped`);
 
     // Load children from Firestore
     const adminDb = getAdminDb();
     const childrenSnap = await adminDb.collection("children").where("status", "==", "active").get();
-    
-    const nameToChild = new Map<string, { id: string; name: string; normName: string; firstName: string; lastName: string; code: string; groupId: string }>();
-    
-    childrenSnap.docs.forEach(doc => {
-      const data = doc.data();
+
+    const children: Array<{ id: string; normName: string; name: string }> = [];
+    childrenSnap.docs.forEach(d => {
+      const data = d.data();
       const fullName = `${data.first_name} ${data.last_name}`;
-      const norm = normalizeName(fullName);
-      const child = {
-        id: doc.id,
+      children.push({
+        id: d.id,
+        normName: normalizeName(fullName),
         name: fullName,
-        normName: norm,
-        firstName: normalizeName(data.first_name),
-        lastName: normalizeName(data.last_name),
-        code: data.child_id_code || "",
-        groupId: data.group_id,
-      };
-      nameToChild.set(norm, child);
+      });
     });
 
-    console.log(`[Import] Loaded ${nameToChild.size} children from Firestore`);
+    console.log(`[Import] Loaded ${children.length} children from Firestore`);
 
     // Match and import
     let imported = 0;
-    const unmatched: string[] = [];
-    const matchedNames: string[] = [];
+    let skippedExisting = 0;
+    const unmatched: { name: string; date: string; row: number }[] = [];
+    const matchedDetails: { name: string; childName: string; date: string; status: string; strategy: string }[] = [];
 
     for (const record of records) {
-      const child = findChildMatch(record.normName, nameToChild);
-      
-      if (!child) {
-        unmatched.push(`${record.name} (${record.date})`);
+      const matchResult = findChildMatch(record.normName, children);
+
+      if (!matchResult) {
+        unmatched.push({ name: record.name, date: record.date, row: record.rowNumber });
         continue;
       }
 
       // Check if already exists
       const existingSnap = await adminDb.collection("attendance_children")
-        .where("child_id", "==", child.id)
+        .where("child_id", "==", matchResult.child.id)
         .where("attendance_date", "==", record.date)
         .limit(1)
         .get();
 
       if (!existingSnap.empty) {
+        skippedExisting++;
         continue;
       }
 
-      // Import
       try {
         await adminDb.collection("attendance_children").add({
-          child_id: child.id,
+          child_id: matchResult.child.id,
           attendance_date: record.date,
           status: record.status,
           check_in: record.status === "present" ? new Date().toISOString() : null,
           registered_by: "csv-import",
           created_at: new Date().toISOString(),
         });
-        matchedNames.push(`${child.name} - ${record.date} - ${record.status === "present" ? "Presente" : "Ausente"}`);
+        imported++;
+        matchedDetails.push({
+          name: record.name,
+          childName: matchResult.child.name,
+          date: record.date,
+          status: record.status === "present" ? "Presente" : "Ausente",
+          strategy: matchResult.strategy,
+        });
       } catch (e) {
         console.error(`Error importing ${record.name}:`, e);
+        unmatched.push({ name: record.name, date: record.date, row: record.rowNumber });
       }
-    }
-
-    // Log unmatched for debugging
-    if (unmatched.length > 0) {
-      console.log(`[Import] Unmatched (${unmatched.length}):`, unmatched.slice(0, 20));
     }
 
     return NextResponse.json({
       success: true,
       totalRecords: records.length,
-      imported: matchedNames.length,
-      unmatched: unmatched.length,
-      unmatchedNames: unmatched.slice(0, 50),
-      matchedNames: matchedNames.slice(0, 50),
+      imported,
+      skippedExisting,
+      unmatchedCount: unmatched.length,
+      unmatched: unmatched.slice(0, 100),
+      matchedDetails: matchedDetails.slice(0, 100),
+      skippedRows: skippedRows.slice(0, 50),
+      headerDetected: parsed[0],
     });
 
   } catch (err: unknown) {
