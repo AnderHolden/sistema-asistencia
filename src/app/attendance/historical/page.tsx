@@ -17,6 +17,7 @@ import {
   XCircleIcon,
   UserPlusIcon,
   ClockIcon,
+  UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import type { Child, AttendanceChild } from "@/types/database";
 
@@ -30,6 +31,7 @@ export default function HistoricalAttendancePage() {
   const [grouped, setGrouped] = useState<Record<string, AttendanceChild>>({});
   const [loading, setLoading] = useState(true);
   const [savingChildId, setSavingChildId] = useState<string | null>(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
@@ -90,6 +92,38 @@ export default function HistoricalAttendancePage() {
     }
   }
 
+  async function handleMarkAllAbsent() {
+    if (!user) return;
+    const unmarked = children.filter((c) => !grouped[c.id]);
+    if (unmarked.length === 0) {
+      toast("No hay ninos sin marcar en esta fecha");
+      return;
+    }
+    if (!confirm(`¿Marcar a los ${unmarked.length} ninos sin marcar como "No asistio"?`)) return;
+    setBulkSaving(true);
+    try {
+      let count = 0;
+      for (const child of unmarked) {
+        await registerHistoricalAttendance(child.id, "absent", user.uid, date);
+        count++;
+      }
+      await logAction("update", "attendance_children", null, {
+        attendance_date: date,
+        action: "mark_all_absent",
+        count,
+      });
+      toast.success(`${count} ninos marcados como No asistio (${date})`);
+      loadData();
+    } catch (err) {
+      console.error("Error marking all absent:", err);
+      toast.error("Error al marcar todos como ausentes");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  const unmarkedCount = useMemo(() => children.filter((c) => !grouped[c.id]).length, [children, grouped]);
+
   if (loading && children.length === 0) return <LoadingSpinner label="Cargando..." />;
 
   return (
@@ -132,6 +166,17 @@ export default function HistoricalAttendancePage() {
               />
             </div>
           </div>
+          <button
+            onClick={handleMarkAllAbsent}
+            disabled={bulkSaving || unmarkedCount === 0}
+            className="px-5 py-2.5 bg-red-500 text-white font-semibold rounded-xl shadow-md hover:bg-red-600 transition-all active:scale-[0.97] disabled:opacity-50 flex items-center gap-2"
+          >
+            {bulkSaving ? (
+              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Marcando...</>
+            ) : (
+              <><UserGroupIcon className="w-4 h-4" /> Marcar {unmarkedCount} sin marcar como No asistio</>
+            )}
+          </button>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 flex items-center gap-1">
           <ClockIcon className="w-3.5 h-3.5" />
