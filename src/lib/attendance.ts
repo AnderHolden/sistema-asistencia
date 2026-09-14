@@ -202,34 +202,39 @@ export async function updateStaffAttendance(attendanceId: string, newCheckIn: st
   });
 }
 
-export async function deleteImportedAttendance(startDate: string, endDate: string): Promise<number> {
+export async function registerHistoricalAttendance(
+  childId: string,
+  status: "present" | "absent",
+  userId: string,
+  date: string
+) {
   const db = getFirebaseDb();
-  const snapshot = await getDocs(
+  const existingSnap = await getDocs(
     query(
       collection(db, "attendance_children"),
-      where("registered_by", "==", "csv-import")
+      where("child_id", "==", childId),
+      where("attendance_date", "==", date)
     )
   );
-
-  const docsToDelete = snapshot.docs.filter(d => {
-    const date = d.data().attendance_date;
-    return date >= startDate && date <= endDate;
-  });
-
-  if (docsToDelete.length === 0) return 0;
-
-  const batchSize = 500;
-  let deleted = 0;
-
-  for (let i = 0; i < docsToDelete.length; i += batchSize) {
-    const batch = writeBatch(db);
-    const chunk = docsToDelete.slice(i, i + batchSize);
-    for (const d of chunk) {
-      batch.delete(d.ref);
-    }
-    await batch.commit();
-    deleted += chunk.length;
+  if (!existingSnap.empty) {
+    const existingDoc = existingSnap.docs[0];
+    await updateDoc(existingDoc.ref, {
+      status,
+      check_in: status === "present" ? new Date().toISOString() : null,
+      modified_by: userId,
+      modified_at: new Date().toISOString(),
+    });
+    return existingDoc.id;
   }
 
-  return deleted;
+  const docRef = await addDoc(collection(db, "attendance_children"), {
+    child_id: childId,
+    attendance_date: date,
+    status,
+    check_in: status === "present" ? new Date().toISOString() : null,
+    registered_by: userId,
+    historical: true,
+    created_at: new Date().toISOString(),
+  });
+  return docRef.id;
 }

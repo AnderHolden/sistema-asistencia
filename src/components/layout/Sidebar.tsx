@@ -16,6 +16,7 @@ import {
   ArrowLeftOnRectangleIcon,
   XMarkIcon,
   ArrowPathIcon,
+  CalendarDaysIcon,
 } from "@heroicons/react/24/outline";
 
 interface SidebarProps {
@@ -42,6 +43,10 @@ const adminNav = [
   { name: "Auditoria", href: "/audit", icon: DocumentTextIcon },
   { name: "Usuarios", href: "/users", icon: ShieldCheckIcon },
   { name: "Configuracion", href: "/settings", icon: Cog6ToothIcon },
+];
+
+const historicalNav = [
+  { name: "Asistencia Historica", href: "/attendance/historical", icon: CalendarDaysIcon },
 ];
 
 export function Sidebar({ open, onClose }: SidebarProps) {
@@ -128,6 +133,16 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               })}
               <div className="mt-6 mb-3 px-3 text-[11px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Administracion</div>
               {adminNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link key={item.name} href={item.href} onClick={onClose} className={linkClass(isActive(item.href))}>
+                    <Icon className="w-5 h-5" aria-hidden="true" />
+                    {item.name}
+                  </Link>
+                );
+              })}
+              <div className="mt-6 mb-3 px-3 text-[11px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Historial</div>
+              {historicalNav.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link key={item.name} href={item.href} onClick={onClose} className={linkClass(isActive(item.href))}>

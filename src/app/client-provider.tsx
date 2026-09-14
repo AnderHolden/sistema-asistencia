@@ -43,7 +43,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
-  const adminRoutes = ["/audit", "/users", "/settings", "/groups", "/corrections"];
+  const adminRoutes = ["/audit", "/users", "/settings", "/groups", "/corrections", "/attendance/historical"];
   const isRestricted = profile?.role !== "super_admin" && adminRoutes.some((r) => pathname === r || pathname.startsWith(r + "/"));
 
   if (pathname === "/login" || !user) {
