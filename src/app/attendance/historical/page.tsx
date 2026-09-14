@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { collection, query, getDocs, where, orderBy } from "firebase/firestore";
+import { collection, query, getDocs, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
 import { registerHistoricalAttendance } from "@/lib/attendance";
@@ -37,10 +37,10 @@ export default function HistoricalAttendancePage() {
     try {
       setLoading(true);
       const [childrenSnap, attSnap] = await Promise.all([
-        getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"), orderBy("first_name"))),
+        getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
         getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", "==", date))),
       ]);
-      setChildren(childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child)));
+      setChildren(childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child)).sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)));
       const map: Record<string, AttendanceChild> = {};
       attSnap.docs.forEach((d) => {
         const data = d.data();
