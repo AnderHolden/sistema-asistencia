@@ -186,15 +186,17 @@ export default function HistoricalAttendancePage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {existing ? (
-                      <div className={`flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold ${existing.status === "present" ? "bg-emerald-500 text-white shadow-md" : "bg-red-500 text-white shadow-md"}`}>
+                      <span className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold border-2 ${existing.status === "present" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20" : "border-red-500 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20"}`}>
                         {existing.status === "present" ? (
-                          <><CheckCircleIcon className="w-4 h-4" />Asistio</>
+                          <><CheckCircleIcon className="w-4 h-4" />Estado: Asistio</>
                         ) : (
-                          <><XCircleIcon className="w-4 h-4" />No asistio</>
+                          <><XCircleIcon className="w-4 h-4" />Estado: No asistio</>
                         )}
-                      </div>
+                      </span>
                     ) : (
-                      <span className="text-xs text-gray-400 font-medium">Sin marcar</span>
+                      <span className="inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300">
+                        Sin marcar
+                      </span>
                     )}
                     <button
                       onClick={() => handleMark(child, "present")}
@@ -202,7 +204,7 @@ export default function HistoricalAttendancePage() {
                       className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-emerald-500 text-white shadow-md hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
                     >
                       <CheckCircleIcon className="w-4 h-4" />
-                      Asistio
+                      Marcar Asistio
                     </button>
                     <button
                       onClick={() => handleMark(child, "absent")}
@@ -210,7 +212,7 @@ export default function HistoricalAttendancePage() {
                       className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-red-500 text-white shadow-md hover:bg-red-600 transition-all active:scale-95 disabled:opacity-50"
                     >
                       <XCircleIcon className="w-4 h-4" />
-                      No asistio
+                      Marcar No asistio
                     </button>
                   </div>
                 </div>
