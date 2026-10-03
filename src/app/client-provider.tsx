@@ -46,28 +46,45 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const adminRoutes = ["/audit", "/users", "/settings", "/groups", "/corrections", "/attendance/historical"];
   const isRestricted = profile?.role !== "super_admin" && adminRoutes.some((r) => pathname === r || pathname.startsWith(r + "/"));
 
-  if (pathname === "/login" || !user) {
+  React.useEffect(() => {
+    if (!loading && !user && pathname !== "/login") {
+      router.replace("/login");
+    }
+  }, [loading, user, pathname, router]);
+
+  if (pathname === "/login") {
     return <>{children}</>;
   }
 
-  if (!loading && !profile) {
+  if (loading || !user) {
     return (
       <div className="flex min-h-screen bg-gray-50 dark:bg-[#0c1220] items-center justify-center">
         <div className="text-center">
+          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="flex min-h-screen bg-gray-50 dark:bg-[#0c1220] items-center justify-center p-4">
+        <div className="text-center max-w-sm bg-white dark:bg-[#1a2438] p-8 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl">
           <p className="text-lg font-bold text-gray-900 dark:text-white mb-2">Sin perfil asignado</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Tu usuario no tiene un perfil configurado. Contacta al administrador.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Tu usuario no tiene un perfil configurado. Contacta al administrador.</p>
           <button onClick={() => { import("firebase/auth").then(({ signOut: fbSignOut }) => { fbSignOut(getFirebaseAuth()).then(() => { window.location.href = "/login"; }); }); }} className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md">Cerrar sesion</button>
         </div>
       </div>
     );
   }
 
-  if (!loading && isRestricted) {
+  if (isRestricted) {
     return (
-      <div className="flex min-h-screen bg-gray-50 dark:bg-[#0c1220] items-center justify-center">
-        <div className="text-center">
+      <div className="flex min-h-screen bg-gray-50 dark:bg-[#0c1220] items-center justify-center p-4">
+        <div className="text-center max-w-sm bg-white dark:bg-[#1a2438] p-8 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl">
           <p className="text-lg font-bold text-gray-900 dark:text-white mb-2">Acceso restringido</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">No tienes permisos para ver esta pagina.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">No tienes permisos para ver esta pagina.</p>
           <a href="/dashboard" className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md">Volver al Dashboard</a>
         </div>
       </div>

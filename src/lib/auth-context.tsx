@@ -40,24 +40,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const docSnap = await getDoc(docRef);
       console.log("[Auth] Profile exists:", docSnap.exists());
       if (docSnap.exists()) {
-        setProfile({ id: docSnap.id, ...docSnap.data() } as Profile);
+        const data = docSnap.data() as Omit<Profile, "id">;
+        setProfile({ id: docSnap.id, ...data, role: data.role || "operator" } as Profile);
       } else {
         // Create profile for new user with default operator role
         console.log("[Auth] Creating new profile for:", uid);
         const currentUser = getFirebaseAuth().currentUser;
         const email = currentUser?.email || "";
-        const profilesSnap = await getDocs(collection(getFirebaseDb(), "profiles"));
-        const isFirstUser = profilesSnap.empty;
         
+        let isFirstUser = false;
+        try {
+          const profilesSnap = await getDocs(collection(getFirebaseDb(), "profiles"));
+          isFirstUser = profilesSnap.empty;
+        } catch (readErr) {
+          // If security rules prevent standard users from reading all profiles,
+          // safely default to operator role without crashing.
+          console.warn("[Auth] Could not check profiles collection, defaulting to operator:", readErr);
+          isFirstUser = false;
+        }
+
+        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.trim().toLowerCase();
+        const isAdmin = (adminEmail && email.toLowerCase() === adminEmail) || isFirstUser;
+
         const newProfile = {
           email,
-          display_name: email?.split("@")[0] || "Usuario",
-          role: isFirstUser ? "super_admin" as const : "operator" as const,
-          avatar_url: null,
+          display_name: currentUser?.displayName || email?.split("@")[0] || "Usuario",
+          role: isAdmin ? ("super_admin" as const) : ("operator" as const),
+          avatar_url: currentUser?.photoURL || null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        
+
         console.log("[Auth] Creating profile:", newProfile);
         await setDoc(docRef, newProfile);
         console.log("[Auth] Profile created successfully");
