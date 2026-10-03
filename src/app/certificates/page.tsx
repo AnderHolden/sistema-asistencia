@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import {
@@ -27,8 +28,16 @@ import {
 } from "@heroicons/react/24/outline";
 import type { Child, Group, Teacher, Practitioner, AttendanceChild, AttendanceStaff, InstitutionProfile } from "@/types/database";
 
-export default function CertificatesPage() {
-  const [activeCertType, setActiveCertType] = useState<"children" | "practitioners" | "teachers">("children");
+function CertificatesContent() {
+  const searchParams = useSearchParams();
+  const urlType = searchParams.get("type");
+  const urlId = searchParams.get("id");
+
+  const [activeCertType, setActiveCertType] = useState<"children" | "practitioners" | "teachers">(
+    urlType && ["children", "practitioners", "teachers"].includes(urlType)
+      ? (urlType as "children" | "practitioners" | "teachers")
+      : "children"
+  );
   const [loading, setLoading] = useState(true);
   const [institution, setInstitution] = useState<InstitutionProfile | null>(null);
 
@@ -91,20 +100,36 @@ export default function CertificatesPage() {
       setInstitution(inst);
       const kids = cSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
       setChildrenList(kids);
-      if (kids.length > 0) setSelectedChildId(kids[0].id);
+      if (urlType === "children" && urlId && kids.some((k) => k.id === urlId)) {
+        setSelectedChildId(urlId);
+      } else if (kids.length > 0) {
+        setSelectedChildId(kids[0].id);
+      }
 
       setGroups(gSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
 
       const tList = tSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
       setTeachersList(tList);
-      if (tList.length > 0) {
+      if (urlType === "teachers" && urlId && tList.some((t) => t.id === urlId)) {
+        setSelectedTeacherId(urlId);
+        const matched = tList.find((t) => t.id === urlId)!;
+        setCustomJobTitle(matched.job_title || matched.role || "Docente Titular");
+        setCustomContractType(matched.contract_type || "Término Fijo");
+        if (matched.salary) setCustomSalary(matched.salary);
+      } else if (tList.length > 0) {
         setSelectedTeacherId(tList[0].id);
         setCustomJobTitle(tList[0].job_title || tList[0].role || "Docente Titular");
+        setCustomContractType(tList[0].contract_type || "Término Fijo");
+        if (tList[0].salary) setCustomSalary(tList[0].salary);
       }
 
       const pList = pSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
       setPractitionersList(pList);
-      if (pList.length > 0) {
+      if (urlType === "practitioners" && urlId && pList.some((p) => p.id === urlId)) {
+        setSelectedPractitionerId(urlId);
+        const matched = pList.find((p) => p.id === urlId)!;
+        setDailyHours(matched.daily_hours || 4);
+      } else if (pList.length > 0) {
         setSelectedPractitionerId(pList[0].id);
         setDailyHours(pList[0].daily_hours || 4);
       }
@@ -781,3 +806,12 @@ export default function CertificatesPage() {
     </div>
   );
 }
+
+export default function CertificatesPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner label="Cargando generador de certificados..." />}>
+      <CertificatesContent />
+    </Suspense>
+  );
+}
+
