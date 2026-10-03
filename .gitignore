@@ -37,6 +37,7 @@ yarn-error.log*
 .env.production
 .env.test
 !.env.example
+backup-env.txt
 
 # vercel
 .vercel
