@@ -149,6 +149,38 @@ export default function SettingsPage() {
     }
   }
 
+  // Manual Cron Trigger State & Handler
+  const [triggeringCron, setTriggeringCron] = useState<"staff" | "children" | "report" | null>(null);
+
+  async function handleTriggerCron(type: "staff" | "children" | "report") {
+    setTriggeringCron(type);
+    try {
+      const endpoint =
+        type === "staff"
+          ? "/api/cron/auto-mark-staff?force=true"
+          : type === "children"
+          ? "/api/cron/auto-mark-children?force=true"
+          : "/api/cron/daily-absence-report?force=true";
+
+      const res = await fetch(endpoint, { method: "POST" });
+      const data = await res.json();
+
+      if (res.ok && (data.success || data.skipped)) {
+        if (data.skipped) {
+          toast(data.reason || "Tarea omitida según calendario", { icon: "ℹ️" });
+        } else {
+          toast.success(data.message || "Tarea ejecutada correctamente");
+        }
+      } else {
+        toast.error(data.error || "Error al ejecutar tarea programada");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error de conexión");
+    } finally {
+      setTriggeringCron(null);
+    }
+  }
+
   async function loadSettings() {
     try {
       const [settingsSnap, groupsSnap] = await Promise.all([
@@ -715,6 +747,112 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Los días no laborables bloquean la pantalla de marcaje para evitar registros accidentales en fines de semana.
               </p>
+            </div>
+          </div>
+
+          {/* Cron Jobs Vercel Integration Box */}
+          <div className="p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl gradient-primary text-white flex items-center justify-center font-bold">
+                  <ClockIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-gray-900 dark:text-white">
+                    Tareas Programadas en Servidor (Cron Jobs Vercel)
+                  </h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Ejecución automática sin necesidad de mantener el navegador abierto
+                  </p>
+                </div>
+              </div>
+
+              <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                Vercel Crons
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-gray-900 dark:text-white">Personal / Docentes</span>
+                  <span className="px-2 py-0.5 rounded font-mono font-bold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                    16:30 COT
+                  </span>
+                </div>
+                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
+                  Marca ausencias a profesores y practicantes que no registraron check-in.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleTriggerCron("staff")}
+                  disabled={triggeringCron !== null}
+                  className="w-full mt-2 py-2 px-3 rounded-lg gradient-primary text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  {triggeringCron === "staff" ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Ejecutando...
+                    </>
+                  ) : (
+                    "Ejecutar Auto-Cierre Ahora"
+                  )}
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-gray-900 dark:text-white">Estudiantes / Niños</span>
+                  <span className="px-2 py-0.5 rounded font-mono font-bold bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                    17:50 COT
+                  </span>
+                </div>
+                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
+                  Marca inasistencias a los niños de ambas jornadas que no asistieron.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleTriggerCron("children")}
+                  disabled={triggeringCron !== null}
+                  className="w-full mt-2 py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  {triggeringCron === "children" ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Ejecutando...
+                    </>
+                  ) : (
+                    "Ejecutar Auto-Cierre Ahora"
+                  )}
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-gray-900 dark:text-white">Reporte Consolidado</span>
+                  <span className="px-2 py-0.5 rounded font-mono font-bold bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    18:00 COT
+                  </span>
+                </div>
+                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
+                  Genera y envía el reporte diario consolidado por correo a los administradores.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleTriggerCron("report")}
+                  disabled={triggeringCron !== null}
+                  className="w-full mt-2 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  {triggeringCron === "report" ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Generando...
+                    </>
+                  ) : (
+                    "Enviar Reporte Diario Ahora"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
