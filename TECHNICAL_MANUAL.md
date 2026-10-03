@@ -1,185 +1,166 @@
 # Manual Técnico - Sistema de Gestión de Asistencia
 
-## Arquitectura del Sistema
+## 1. Arquitectura del Sistema
 
 ### Stack Tecnológico
-- **Frontend**: Next.js 14+ (App Router), React, TypeScript
-- **Estilos**: Tailwind CSS
-- **Backend/Database**: Supabase (PostgreSQL + Auth + Realtime)
-- **Despliegue**: Vercel (Frontend) + Supabase Cloud (Backend)
-- **PWA**: Service Worker + manifest.json
+- **Frontend**: Next.js 16 (App Router), React 19, TypeScript
+- **Estilos**: Tailwind CSS 4, PostCSS
+- **Backend / Base de Datos**: Google Firebase
+  - **Firebase Authentication**: Gestión de usuarios y sesiones
+  - **Cloud Firestore**: Base de datos NoSQL reactiva en tiempo real
+  - **Firebase Storage**: Almacenamiento seguro de fotos y firmas
+  - **Firebase Admin SDK**: Operaciones del lado del servidor en API Routes
+- **Despliegue**: Vercel (Frontend & Serverless Functions) + Google Cloud / Firebase
+- **PWA**: Web App Manifest (`manifest.json`) + Service Worker para instalación en dispositivos móviles y de escritorio
 
-### Estructura de Directorios
+---
+
+## 2. Estructura del Código
 
 ```
 sistema-asistencia/
-├── src/
-│   ├── app/                    # App Router (Next.js 14+)
-│   │   ├── layout.tsx          # Layout principal con auth
-│   │   ├── page.tsx            # Redirect a /login
-│   │   ├── login/              # Página de login
-│   │   ├── dashboard/          # Dashboard principal
-│   │   ├── children/           # CRUD de niños
-│   │   ├── groups/             # CRUD de grupos
-│   │   ├── teachers/           # CRUD de profesores
-│   │   ├── practitioners/      # CRUD de practicantes
-│   │   ├── attendance/
-│   │   │   ├── children/       # Asistencia infantil
-│   │   │   └── staff/          # Asistencia personal + firma
-│   │   ├── reports/            # Reportes + exportación
-│   │   ├── audit/              # Logs de auditoría
-│   │   ├── users/              # Gestión de usuarios
-│   │   └── settings/           # Configuración del sistema
-│   ├── components/
-│   │   ├── layout/             # Sidebar, ThemeToggle
-│   │   ├── ui/                 # Button, Input, Modal, Card
-│   │   ├── children/           # Componentes de niños
-│   │   ├── attendance/         # Componentes de asistencia
-│   │   ├── reports/            # Componentes de reportes
-│   │   └── audit/              # Componentes de auditoría
-│   ├── lib/
-│   │   ├── supabase.ts         # Cliente Supabase (browser)
-│   │   ├── supabaseServer.ts   # Cliente Supabase (server)
-│   │   ├── auth.ts             # Funciones de autenticación
-│   │   ├── attendance.ts       # Funciones de asistencia
-│   │   ├── audit.ts            # Funciones de auditoría
-│   │   ├── export.ts           # Exportación PDF/Excel
-│   │   └── utils.ts            # Utilidades generales
-│   ├── hooks/
-│   │   └── useAuth.ts          # Hook de autenticación
-│   └── types/
-│       └── database.ts         # Tipos TypeScript del schema
-├── database/
-│   └── schema.sql              # Schema completo de PostgreSQL
-├── public/
-│   ├── manifest.json           # PWA manifest
-│   ├── sw.js                   # Service Worker
-│   └── icons/                  # Iconos PWA
-└── .env.local                  # Variables de entorno (no commitear)
+├── firestore.rules               # Reglas de seguridad de Cloud Firestore
+├── cors.json                     # Configuración de orígenes cruzados (Storage)
+├── DEPLOYMENT.md                 # Guía de despliegue en Vercel
+├── .env.example                  # Plantilla de variables de entorno
+└── src/
+    ├── app/                      # Next.js App Router
+    │   ├── layout.tsx            # Shell HTML principal y fuentes
+    │   ├── client-provider.tsx   # Proveedor de autenticación y redirecciones
+    │   ├── page.tsx              # Redirección raíz a /login o /dashboard
+    │   ├── login/                # Inicio de sesión
+    │   ├── dashboard/            # Métricas generales y accesos rápidos
+    │   ├── attendance/
+    │   │   ├── children/         # Toma de asistencia y solicitudes de niños
+    │   │   ├── staff/            # Asistencia de profesores/practicantes con firma
+    │   │   └── historical/       # Asistencia histórica y marcación masiva
+    │   ├── corrections/          # Panel administrativo de correcciones
+    │   ├── children/             # Gestión de niños matriculados
+    │   ├── teachers/             # Gestión de profesores
+    │   ├── practitioners/        # Gestión de practicantes
+    │   ├── groups/               # Salones y grupos
+    │   ├── reports/              # Reportes gráficos y exportación
+    │   ├── audit/                # Bitácora inmutable de auditoría
+    │   ├── users/                # Gestión de perfiles y roles de usuario
+    │   ├── settings/             # Configuración del sistema y festivos
+    │   └── api/                  # Serverless Functions (Upload, Email, Seed)
+    ├── components/               # Componentes React modulares
+    │   ├── layout/               # Sidebar, Header, ThemeToggle
+    │   └── ui/                   # Modal, Input, Button, LoadingSpinner
+    ├── lib/                      # Servicios y utilidades
+    │   ├── firebase.ts           # Inicialización cliente de Firebase
+    │   ├── firebase-admin.ts     # Firebase Admin SDK para Vercel
+    │   ├── auth-context.tsx      # Contexto global de sesión y rol
+    │   ├── attendance.ts         # Lógica de asistencia y autocierre
+    │   ├── corrections.ts        # Flujo de aprobación y solicitudes
+    │   ├── audit.ts              # Registro de logs de auditoría
+    │   └── email.ts              # Servicio de notificaciones SMTP
+    └── types/
+        └── database.ts           # Modelos e interfaces TypeScript
 ```
 
-### Modelo de Base de Datos
+---
 
-#### Diagrama Entidad-Relación
+## 3. Modelo de Datos (Cloud Firestore)
 
-```
-┌──────────────┐     ┌──────────────┐
-│   profiles   │     │    groups    │
-│──────────────│     │──────────────│
-│ id (PK)      │     │ id (PK)      │
-│ email        │     │ name         │
-│ display_name │     │ description  │
-│ role         │     │ created_at   │
-└──────────────┘     └──────────────┘
-                            │
-                            │ 1:N
-                            ▼
-┌──────────────┐     ┌──────────────┐
-│   children   │────▶│  attendance_ │
-│──────────────│     │   children   │
-│ id (PK)      │     │──────────────│
-│ first_name   │     │ id (PK)      │
-│ last_name    │     │ child_id (FK)│
-│ date_of_birth│     │ attendance_  │
-│ group_id (FK)│     │   date       │
-│ shift        │     │ status       │
-│ status       │     │ registered_by│
-└──────────────┘     └──────────────┘
+Firestore organiza los datos en colecciones de documentos:
 
-┌──────────────┐     ┌──────────────┐
-│  teachers    │────▶│  attendance_ │
-│──────────────│     │    staff     │
-│ id (PK)      │     │──────────────│
-│ first_name   │     │ id (PK)      │
-│ last_name    │     │ staff_id (FK)│
-│ email        │     │ staff_type   │
-│ phone        │     │ check_in     │
-│ status       │     │ check_out    │
-└──────────────┘     │ signature_url│
-                     └──────────────┘
+### Colecciones Principales
 
-┌──────────────┐
-│ audit_logs   │
-│──────────────│
-│ id (PK)      │
-│ user_id (FK) │
-│ action       │
-│ entity_type  │
-│ entity_id    │
-│ details      │
-│ created_at   │
-└──────────────┘
-```
+1. **`profiles/{uid}`**
+   - `email`: string
+   - `display_name`: string
+   - `role`: `"super_admin"` | `"admin"` | `"operator"`
+   - `created_at`: string (ISO)
 
-### Roles y Permisos
+2. **`children/{childId}`**
+   - `first_name`: string, `last_name`: string
+   - `child_id_code`: string (ej: `"CT001"`)
+   - `date_of_birth`: string
+   - `group_id`: string (referencia a `groups`)
+   - `shift`: `"Mañana"` | `"Tarde"`
+   - `status`: `"active"` | `"inactive"`
+   - `photo_url`: string | null
 
-| Acción | Super Admin | Operador |
-|--------|:-----------:|:--------:|
-| Ver Dashboard | ✅ | ✅ |
-| CRUD Niños | ✅ | ❌ |
-| CRUD Grupos | ✅ | ❌ |
-| CRUD Profesores | ✅ | ❌ |
-| CRUD Practicantes | ✅ | ❌ |
-| Registrar Asistencia Niños | ✅ | ✅ |
-| Registrar Asistencia Personal | ✅ | ✅ |
-| Modificar Asistencia | ✅ | ❌ |
-| Ver Reportes | ✅ | ✅ |
-| Exportar PDF/Excel | ✅ | ✅ |
-| Ver Auditoría | ✅ | ❌ |
-| CRUD Usuarios | ✅ | ❌ |
-| Configuración | ✅ | ❌ |
+3. **`groups/{groupId}`**
+   - `name`: string, `description`: string, `color`: string
 
-### Seguridad
+4. **`teachers/{teacherId}`** y **`practitioners/{practitionerId}`**
+   - `first_name`: string, `last_name`: string
+   - `document_type`: string, `document_number`: string
+   - `email`: string, `phone`: string
+   - `status`: `"active"` | `"inactive"`
 
-1. **Row Level Security (RLS)**: Todas las tablas tienen RLS habilitado
-2. **Autenticación**: Supabase Auth con email/password
-3. **Sesiones**: Manejadas por Supabase con cookies HTTP-only
-4. **Protección de Rutas**: Middleware de Next.js redirige a login
-5. **Auditoría**: Todas las acciones quedan registradas
+5. **`attendance_children/{docId}`**
+   - `child_id`: string, `child_name`: string
+   - `attendance_date`: string (`YYYY-MM-DD`)
+   - `status`: `"present"` | `"absent"`
+   - `check_in`: string (ISO) | null
+   - `registered_by`: string (UID del operador)
+   - `modified_by`: string | null, `modification_note`: string | null
 
-### Performance
+6. **`attendance_staff/{docId}`**
+   - `staff_id`: string, `staff_type`: `"teacher"` | `"practitioner"`
+   - `attendance_date`: string (`YYYY-MM-DD`)
+   - `check_in`: string (ISO) | null
+   - `signature_url`: string (Base64 data URL o Firebase Storage) | null
+   - `status`: `"present"` | `"absent"` | null
 
-- **SSG/ISR**: Next.js genera páginas estáticas cuando es posible
-- **Lazy Loading**: Componentes cargados bajo demanda
-- **Optimistic UI**: Actualizaciones inmediatas en la interfaz
-- **Índices de BD**: Consultas optimizadas con índices en columnas frecuentes
+7. **`correction_requests/{docId}`** (Personal)
+   - `attendance_id`: string, `staff_id`: string, `staff_name`: string
+   - `attendance_date`: string
+   - `action_requested`: `"enable_signature"` | `"mark_present"`
+   - `action_resolved`: `"signature_enabled"` | `"marked_present"` | null
+   - `reason`: string
+   - `status`: `"pending"` | `"approved"` | `"rejected"`
+   - `requested_by`: string, `requested_by_email`: string
+   - `resolved_by`: string | null, `admin_note`: string | null
 
-## Variables de Entorno
+8. **`correction_requests_children/{docId}`** (Niños)
+   - `attendance_id`: string, `child_id`: string, `child_name`: string
+   - `attendance_date`: string
+   - `old_status`: `"present"` | `"absent"`
+   - `new_status`: `"present"` | `"absent"`
+   - `action_resolved`: `"update_status"` | `"clear_record"` | null
+   - `reason`: string
+   - `status`: `"pending"` | `"approved"` | `"rejected"`
+   - `requested_by`: string, `resolved_by`: string | null
 
-| Variable | Descripción | Ejemplo |
-|----------|-------------|---------|
-| NEXT_PUBLIC_SUPABASE_URL | URL del proyecto Supabase | https://xxx.supabase.co |
-| NEXT_PUBLIC_SUPABASE_ANON_KEY | Clave pública de Supabase | eyJhbG... |
-| SUPABASE_SERVICE_ROLE_KEY | Clave de servicio (server only) | eyJhbG... |
+9. **`audit_logs/{logId}`**
+   - `action`: `"create"` | `"update"` | `"delete"`
+   - `entity_type`: string, `entity_id`: string | null
+   - `user_email`: string, `details`: object, `created_at`: string
 
-## Comandos
+---
 
-```bash
-# Desarrollo
-npm run dev
+## 4. Matriz de Control de Acceso y Roles
 
-# Build de producción
-npm run build
+| Módulo / Acción | Super Admin | Admin | Operador |
+|---|:---:|:---:|:---:|
+| Ver Dashboard y Estadísticas | ✅ | ✅ | ✅ |
+| Marcar Asistencia Diaria (Niños y Personal) | ✅ | ✅ | ✅ |
+| Solicitar Corrección de Asistencia | ✅ | ✅ | ✅ |
+| Ver Historial Propio de Solicitudes | ✅ | ✅ | ✅ |
+| Aprobar / Rechazar Correcciones | ✅ | ✅ | ❌ |
+| Edición Directa de Asistencia | ✅ | ✅ | ❌ |
+| Crear / Editar / Borrar Niños | ✅ | ✅ | ❌ |
+| Crear / Editar / Borrar Personal Docente | ✅ | ✅ | ❌ |
+| Configuración del Sistema y Festivos | ✅ | ❌ | ❌ |
+| Auditoría Completa de Acciones | ✅ | ❌ | ❌ |
+| Crear y Administrar Usuarios del Sistema | ✅ | ❌ | ❌ |
 
-# Ejecutar build
-npm start
+---
 
-# Lint
-npm run lint
-```
+## 5. Variables de Entorno en Producción (Vercel)
 
-## Tecnologías y Licencias
-
-| Tecnología | Licencia | Uso |
-|------------|----------|-----|
-| Next.js | MIT | Framework frontend |
-| React | MIT | UI library |
-| TypeScript | Apache 2.0 | Type safety |
-| Tailwind CSS | MIT | Estilos |
-| Supabase | Apache 2.0 | Backend/DB |
-| Recharts | MIT | Gráficas |
-| jsPDF | MIT | Exportación PDF |
-| SheetJS (xlsx) | Apache 2.0 | Exportación Excel |
-| Heroicons | MIT | Iconografía |
-
-Todas las tecnologías son de código abierto y gratuitas.
+| Variable | Tipo | Propósito |
+|---|---|---|
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Pública | Clave API del cliente web de Firebase |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Pública | Dominio de autenticación de Firebase |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Pública | ID del proyecto de Firebase |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Pública | Bucket de almacenamiento |
+| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Pública | ID del remitente de mensajería |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | Pública | Identificador de aplicación web |
+| `NEXT_PUBLIC_ADMIN_EMAIL` | Pública | Correo que asume rol `super_admin` |
+| `FIREBASE_SERVICE_ACCOUNT` | Secreta | JSON o Base64 de la cuenta de servicio |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | Secretas | Configuración del servidor de correo |

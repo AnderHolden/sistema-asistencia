@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleAuth } from "google-auth-library";
+import { getFirebaseServiceAccount } from "@/lib/firebase-admin";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,12 +13,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (!saRaw || saRaw === "{}" || !JSON.parse(saRaw).private_key) {
+    const sa = getFirebaseServiceAccount();
+    if (!sa || !sa.client_email || !sa.private_key) {
       return NextResponse.json({ error: "Service account not configured" }, { status: 500 });
     }
 
-    const sa = JSON.parse(saRaw);
     const auth = new GoogleAuth({
       credentials: {
         client_email: sa.client_email,

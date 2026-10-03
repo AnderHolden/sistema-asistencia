@@ -106,24 +106,29 @@ Al iniciar sesión, verás un resumen con:
 6. Cuando termines, haz clic en **"Guardar Asistencia"**
 
 ### Importante:
-- Solo puedes registrar asistencia **una vez por día** por niño
-- Si ya registraste asistencia, los botones aparecerán bloqueados
-- Solo el Super Administrador puede modificar asistencias previas
+- Cada niño se marca como **Asistió** o **No asistió** de forma inmediata.
+- Si un operador comete una equivocación al marcar, puede hacer clic en el ícono de alerta ⚠️ (**Reportar error**) para enviar una solicitud de corrección al Administrador indicando el estado correcto y el motivo.
+- Mientras la solicitud esté en proceso, la tarjeta mostrará la insignia animada **"En revisión"** para prevenir duplicados.
+- El Super Administrador puede corregir asistencias directamente o gestionar las solicitudes desde el módulo de **Correcciones**.
 
 ---
 
-## Registro de Asistencia de Personal
+## Módulo de Correcciones (Para Operadores y Administradores)
 
-### Pasos:
-1. Ve a **Asistencia > Personal** en el menú
-2. Verás la lista de profesores y practicantes
-3. Haz clic en **"Firmar"** junto al nombre
-4. **Firma digitalmente**:
-   - En celular/tablet: usa tu dedo
-   - En computador: usa el mouse
-5. Haz clic en **"Guardar"**
+### Para Operadores:
+1. Si registraste erróneamente a un niño o miembro del personal, haz clic en el botón de corrección junto a su estado.
+2. Selecciona a qué estado deseas cambiar (**Asistió** o **No asistió**) o qué acción requieres (**Habilitar firma** o **Marcar presente**).
+3. Escribe una breve justificación del error y haz clic en **Enviar Solicitud**.
+4. La interfaz te notificará automáticamente cuando el Administrador apruebe o rechace tu solicitud.
 
-### La firma se almacena como imagen y queda registrada como evidencia.
+### Para Administradores (/corrections):
+1. Ingresa a **Correcciones** en el menú de navegación.
+2. Verás dos pestañas: **Asistencia de Niños** y **Personal Docente**.
+3. En la vista de **Pendientes**, puedes:
+   - **Aprobar y Cambiar Estado:** Aplica la corrección inmediatamente en 1 clic sin borrar el registro.
+   - **Reiniciar Registro:** Elimina el registro para que el operador vuelva a marcar desde cero.
+   - **Rechazar:** Rechaza la solicitud indicando una nota explicativa para el operador.
+4. Consulta el **Historial** para revisar todas las solicitudes resueltas anteriormente.
 
 ---
 

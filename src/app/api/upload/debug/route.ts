@@ -1,23 +1,23 @@
 import { NextResponse } from "next/server";
 import { GoogleAuth } from "google-auth-library";
+import { getFirebaseServiceAccount } from "@/lib/firebase-admin";
 
 export async function GET() {
   const debug: Record<string, unknown> = {};
 
   try {
-    const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
-    debug.serviceAccountExists = !!saRaw;
-    debug.serviceAccountLength = saRaw?.length || 0;
+    const sa = getFirebaseServiceAccount();
+    debug.serviceAccountConfigured = !!sa;
 
-    if (!saRaw || saRaw === "{}") {
-      debug.error = "FIREBASE_SERVICE_ACCOUNT not set";
+    if (!sa || !sa.client_email || !sa.private_key) {
+      debug.error = "FIREBASE_SERVICE_ACCOUNT or individual credentials not properly configured";
       return NextResponse.json(debug);
     }
 
-    const sa = JSON.parse(saRaw);
     debug.hasPrivateKey = !!sa.private_key;
     debug.hasClientEmail = !!sa.client_email;
-    debug.projectId = sa.project_id;
+    debug.clientEmail = sa.client_email;
+    debug.projectId = sa.project_id || sa.projectId;
 
     const auth = new GoogleAuth({
       credentials: { client_email: sa.client_email, private_key: sa.private_key },
