@@ -4,7 +4,7 @@ import { sendCorrectionNotification } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
-    const { childName, childCode, date, reason, adminEmails } = await req.json();
+    const { childName, childCode, date, reason, newStatus, adminEmails } = await req.json();
 
     if (!childName || !childCode || !date || !reason) {
       return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No hay administradores con email configurado" }, { status: 400 });
     }
 
-    await sendCorrectionNotification(recipients, childName, childCode, date, reason);
+    await sendCorrectionNotification(recipients, childName, childCode, date, reason, newStatus);
 
     return NextResponse.json({ success: true, sentTo: recipients.length });
   } catch (err: unknown) {

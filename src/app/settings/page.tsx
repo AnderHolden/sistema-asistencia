@@ -22,6 +22,11 @@ import {
   TrashIcon,
   CheckCircleIcon,
   PencilIcon,
+  EnvelopeIcon,
+  BellIcon,
+  PaperAirplaneIcon,
+  ExclamationTriangleIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
 import type { Child, Group, Teacher, Practitioner } from "@/types/database";
 
@@ -39,7 +44,7 @@ interface Holiday {
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"company" | "rules" | "holidays" | "downloads" | "backup">("company");
+  const [activeTab, setActiveTab] = useState<"company" | "rules" | "holidays" | "notifications" | "downloads" | "backup">("company");
   const [settings, setSettings] = useState<Setting[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<Record<string, string>>({
@@ -79,10 +84,70 @@ export default function SettingsPage() {
   const [auditDateFrom, setAuditDateFrom] = useState("");
   const [auditDateTo, setAuditDateTo] = useState("");
 
+  // Email & Notifications Status & Test
+  const [emailStatus, setEmailStatus] = useState<{ configured: boolean; provider: "resend" | "smtp" | "none"; from: string } | null>(null);
+  const [loadingEmailStatus, setLoadingEmailStatus] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
+
   useEffect(() => {
     loadSettings();
     loadHolidays();
+    checkEmailStatus();
   }, []);
+
+  async function checkEmailStatus() {
+    setLoadingEmailStatus(true);
+    try {
+      const res = await fetch("/api/email/test");
+      if (res.ok) {
+        const data = await res.json();
+        setEmailStatus(data);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingEmailStatus(false);
+    }
+  }
+
+  async function handleSendTestEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!testEmail || !testEmail.includes("@")) {
+      toast.error("Por favor ingrese un correo electrónico válido");
+      return;
+    }
+    setSendingTestEmail(true);
+    setTestEmailResult(null);
+    try {
+      const res = await fetch("/api/email/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetEmail: testEmail.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success("¡Correo de prueba enviado con éxito!");
+        setTestEmailResult({
+          success: true,
+          message: `Mensaje entregado vía ${data.provider.toUpperCase()} a ${data.sentTo}. Revisa tu bandeja de entrada o spam.`,
+        });
+      } else {
+        toast.error(data.error || "Fallo al enviar correo");
+        setTestEmailResult({
+          success: false,
+          error: data.error || "No se pudo entregar el correo",
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error de conexión";
+      toast.error(msg);
+      setTestEmailResult({ success: false, error: msg });
+    } finally {
+      setSendingTestEmail(false);
+    }
+  }
 
   async function loadSettings() {
     try {
@@ -418,6 +483,21 @@ export default function SettingsPage() {
         </button>
 
         <button
+          onClick={() => {
+            setActiveTab("notifications");
+            checkEmailStatus();
+          }}
+          className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all shrink-0 ${
+            activeTab === "notifications"
+              ? "bg-primary text-white shadow-md shadow-primary/20"
+              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-800"
+          }`}
+        >
+          <EnvelopeIcon className="w-4 h-4" />
+          Notificaciones y Correo
+        </button>
+
+        <button
           onClick={() => setActiveTab("downloads")}
           className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all shrink-0 ${
             activeTab === "downloads"
@@ -702,6 +782,210 @@ export default function SettingsPage() {
             {holidays.length === 0 && (
               <p className="p-6 text-center text-sm text-gray-400">No hay festivos programados actualmente.</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: NOTIFICACIONES Y CORREO */}
+      {activeTab === "notifications" && (
+        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <EnvelopeIcon className="w-5 h-5 text-primary" />
+                Sistema Automatizado de Notificaciones y Correo
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Monitorea el estado de entrega de alertas, resoluciones de corrección y reportes de inasistencia.
+              </p>
+            </div>
+
+            <button
+              onClick={checkEmailStatus}
+              disabled={loadingEmailStatus}
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-2"
+            >
+              {loadingEmailStatus ? "Comprobando..." : "Actualizar Diagnóstico"}
+            </button>
+          </div>
+
+          {/* Live Service Status Card */}
+          <div
+            className={`p-5 rounded-2xl border ${
+              emailStatus?.configured
+                ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-900 dark:text-emerald-200"
+                : "bg-amber-50/70 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/40 text-amber-900 dark:text-amber-200"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-sm shrink-0 ${
+                    emailStatus?.configured ? "bg-emerald-600" : "bg-amber-500"
+                  }`}
+                >
+                  {emailStatus?.configured ? (
+                    <CheckCircleIcon className="w-6 h-6" />
+                  ) : (
+                    <ExclamationTriangleIcon className="w-6 h-6" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="font-bold text-base">
+                    {emailStatus?.configured
+                      ? "Servicio de Notificaciones Operativo y Conectado"
+                      : "Servicio de Notificaciones Pendiente de Configuración"}
+                  </h4>
+                  <p className="text-xs opacity-90 mt-0.5">
+                    {emailStatus?.configured
+                      ? `Proveedor activo: ${emailStatus.provider === "resend" ? "Resend API (Cloud Native)" : "Servidor SMTP / Nodemailer"} · Remitente: ${emailStatus.from || "Por defecto"}`
+                      : "Para que el sistema envíe correos automáticos en Vercel, agrega las variables de entorno de SMTP o Resend en tu panel de Vercel."}
+                  </p>
+                </div>
+              </div>
+
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider shrink-0 ${
+                  emailStatus?.configured
+                    ? "bg-emerald-200/60 dark:bg-emerald-800/50 text-emerald-800 dark:text-emerald-200"
+                    : "bg-amber-200/60 dark:bg-amber-800/50 text-amber-800 dark:text-amber-200"
+                }`}
+              >
+                {emailStatus?.configured ? "En Línea" : "Inactivo"}
+              </span>
+            </div>
+          </div>
+
+          {/* Test Email Tool */}
+          <div className="p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 space-y-4">
+            <div className="flex items-center gap-2">
+              <PaperAirplaneIcon className="w-5 h-5 text-primary" />
+              <h4 className="font-bold text-sm text-gray-900 dark:text-white">
+                Prueba en Vivo de Entrega de Correo
+              </h4>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Envía un correo de comprobación para verificar que el proveedor (Resend o SMTP) entrega satisfactoriamente en tu bandeja de entrada.
+            </p>
+
+            <form onSubmit={handleSendTestEmail} className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="email"
+                placeholder="Ingresa tu correo institucional o personal (ej: admin@correo.com)..."
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button
+                type="submit"
+                disabled={sendingTestEmail}
+                className="px-6 py-2.5 gradient-primary text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
+              >
+                {sendingTestEmail ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Enviando prueba...
+                  </>
+                ) : (
+                  <>
+                    <PaperAirplaneIcon className="w-4 h-4" />
+                    Enviar Correo de Prueba
+                  </>
+                )}
+              </button>
+            </form>
+
+            {testEmailResult && (
+              <div
+                className={`p-3.5 rounded-xl text-xs font-semibold ${
+                  testEmailResult.success
+                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                    : "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800"
+                }`}
+              >
+                {testEmailResult.success ? `✓ ${testEmailResult.message}` : `⚠ ${testEmailResult.error}`}
+              </div>
+            )}
+          </div>
+
+          {/* Automated Event Triggers Grid */}
+          <div>
+            <h4 className="font-bold text-sm text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+              <BellIcon className="w-4 h-4 text-purple-500" />
+              Flujos Automatizados Configurados en el Sistema
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">1. Solicitudes de Corrección</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">Inmediato</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Cada vez que un operador envía una solicitud de corrección de inasistencia, se envía una alerta a los administradores del sistema con los motivos y enlace de revisión.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">2. Resolución de Corrección</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">Inmediato</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Cuando la administración Aprueba o Rechaza una solicitud, el operador que la radicó recibe un correo formal con el concepto administrativo y la actualización de asistencia.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">3. Reporte Diario de Inasistencias</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">Cierre de Jornada</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Consolida la lista completa de niños y miembros del personal que registraron ausencia, discriminando grupo y rol para control de gestión institucional.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">4. Auto-Cierre Horario</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">16:30 / 17:50</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Notifica al equipo directivo cuando el temporizador del sistema efectúa el marcaje masivo de ausencias al término del horario límite escolar y laboral.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Vercel Environment Variables Guide */}
+          <div className="p-5 rounded-2xl bg-gray-50 dark:bg-[#0c1220] border border-gray-200 dark:border-gray-700 space-y-3">
+            <h4 className="font-bold text-xs text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+              Variables de Entorno para Vercel
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="p-3 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-1">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">Opción 1: Resend (Recomendada)</span>
+                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
+                  Crea una cuenta gratuita en resend.com y agrega una sola variable en Vercel:
+                </p>
+                <code className="block p-2 bg-gray-100 dark:bg-gray-900 rounded font-mono text-[11px] text-gray-800 dark:text-gray-200">
+                  RESEND_API_KEY=re_123456...
+                </code>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-1">
+                <span className="font-bold text-blue-600 dark:text-blue-400">Opción 2: Servidor SMTP / Gmail</span>
+                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
+                  Usa cualquier servidor de correo saliente SMTP agregando en Vercel:
+                </p>
+                <code className="block p-2 bg-gray-100 dark:bg-gray-900 rounded font-mono text-[10px] text-gray-800 dark:text-gray-200 leading-tight">
+                  SMTP_HOST=smtp.gmail.com<br />
+                  SMTP_PORT=465<br />
+                  SMTP_USER=tu-correo@gmail.com<br />
+                  SMTP_PASS=tu-contraseña-aplicacion
+                </code>
+              </div>
+            </div>
           </div>
         </div>
       )}
