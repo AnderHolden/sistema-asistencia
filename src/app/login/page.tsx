@@ -14,9 +14,17 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
+  function getRedirectTarget() {
+    if (typeof window !== "undefined") {
+      const target = new URLSearchParams(window.location.search).get("redirect");
+      if (target && target.startsWith("/")) return target;
+    }
+    return "/dashboard";
+  }
+
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace("/dashboard");
+      router.replace(getRedirectTarget());
     }
   }, [user, authLoading, router]);
 
@@ -26,7 +34,7 @@ export default function LoginPage() {
     try {
       await signIn(email, password);
       toast.success("Bienvenido al sistema");
-      router.push("/dashboard");
+      router.push(getRedirectTarget());
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Credenciales invalidas");
     } finally {
@@ -39,7 +47,7 @@ export default function LoginPage() {
     try {
       await signInWithGoogle();
       toast.success("Bienvenido al sistema");
-      router.push("/dashboard");
+      router.push(getRedirectTarget());
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Error con Google");
     } finally {

@@ -48,9 +48,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     if (!loading && !user && pathname !== "/login") {
-      router.replace("/login");
+      document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+      const loginUrl = pathname !== "/" ? `/login?redirect=${encodeURIComponent(pathname)}` : "/login";
+      window.location.replace(loginUrl);
     }
-  }, [loading, user, pathname, router]);
+  }, [loading, user, pathname]);
 
   if (pathname === "/login") {
     return <>{children}</>;

@@ -24,8 +24,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
+        document.cookie = "auth-session=true; path=/; max-age=2592000; SameSite=Lax";
         await loadProfile(firebaseUser.uid);
       } else {
+        document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
         setProfile(null);
       }
       setLoading(false);
@@ -83,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   function signOut() {
+    document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
     import("firebase/auth").then(({ signOut: fbSignOut }) => {
       fbSignOut(getFirebaseAuth()).then(() => { window.location.href = "/login"; });
     });

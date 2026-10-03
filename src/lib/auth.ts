@@ -7,15 +7,24 @@ const googleProvider = new GoogleAuthProvider();
 
 export async function signIn(email: string, password: string) {
   const result = await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
+  if (typeof document !== "undefined") {
+    document.cookie = "auth-session=true; path=/; max-age=2592000; SameSite=Lax";
+  }
   return result;
 }
 
 export async function signInWithGoogle() {
   const result = await signInWithPopup(getFirebaseAuth(), googleProvider);
+  if (typeof document !== "undefined") {
+    document.cookie = "auth-session=true; path=/; max-age=2592000; SameSite=Lax";
+  }
   return result;
 }
 
 export async function signOut() {
+  if (typeof document !== "undefined") {
+    document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+  }
   await fbSignOut(getFirebaseAuth());
 }
 
