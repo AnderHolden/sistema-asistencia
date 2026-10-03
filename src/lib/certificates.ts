@@ -14,7 +14,7 @@ async function getPdfLibs() {
 export const DEFAULT_INSTITUTION: InstitutionProfile = {
   institution_name: "Casita de Tareas",
   nit: "900.584.219-4",
-  slogan: "Acompañamiento Pedagógico, Refuerzo Escolar y Formación Integral",
+  slogan: "La Alegría del Conocimiento, Enseñando con Amor",
   address: "Calle Principal # 12 - 34, Barrio Centro",
   city: "Bogotá D.C., Colombia",
   phone: "(+57) 310 854 9210 / (601) 745 8920",
@@ -23,7 +23,7 @@ export const DEFAULT_INSTITUTION: InstitutionProfile = {
   representative_id: "52.345.678",
   representative_role: "Directora General y Representante Legal",
   signature_url: null,
-  logo_url: null,
+  logo_url: "/logo.png",
 };
 
 export async function getInstitutionProfile(): Promise<InstitutionProfile> {

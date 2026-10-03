@@ -104,11 +104,11 @@ export default function DashboardPage() {
   if (loading || authLoading) return <LoadingSpinner label="Cargando dashboard..." />;
 
   const statCards = [
-    { title: "Ninos registrados", value: stats.totalChildren, icon: UserGroupIcon, gradient: "gradient-primary" },
-    { title: "Profesores", value: stats.totalTeachers, icon: AcademicCapIcon, gradient: "gradient-success" },
-    { title: "Practicantes", value: stats.totalPractitioners, icon: BriefcaseIcon, gradient: "gradient-warm" },
-    { title: "Asistencias mes", value: stats.monthPresent, icon: CheckCircleIcon, gradient: "gradient-success" },
-    { title: "Ausencias mes", value: stats.monthAbsent, icon: XCircleIcon, gradient: "gradient-danger" },
+    { title: "Niños registrados", value: stats.totalChildren, icon: UserGroupIcon, gradient: "bg-[#1E40AF]" },
+    { title: "Profesores", value: stats.totalTeachers, icon: AcademicCapIcon, gradient: "bg-[#2E7D32]" },
+    { title: "Practicantes", value: stats.totalPractitioners, icon: BriefcaseIcon, gradient: "bg-[#F59E0B]" },
+    { title: "Asistencias mes", value: stats.monthPresent, icon: CheckCircleIcon, gradient: "bg-[#10B981]" },
+    { title: "Ausencias mes", value: stats.monthAbsent, icon: XCircleIcon, gradient: "bg-[#E53935]" },
   ];
 
   const totalMonth = stats.monthPresent + stats.monthAbsent;
@@ -117,36 +117,36 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Banner Institucional Casita de Tareas */}
-      <div className="gradient-primary rounded-3xl p-6 lg:p-7 text-white shadow-md relative overflow-hidden">
-        <div className="relative z-10 max-w-2xl">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/20 backdrop-blur-md mb-3 text-white">
-            <SparklesIcon className="w-3.5 h-3.5 text-amber-300" />
-            <span>Casita de Tareas • Versión 2.0</span>
+      <div className="gradient-primary rounded-3xl p-6 lg:p-8 text-white shadow-lg relative overflow-hidden">
+        <div className="relative z-10 max-w-xl lg:max-w-2xl">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-[#E53935] text-white shadow-sm mb-3.5 border border-white/20">
+            <span role="img" aria-label="Amor">❤️</span>
+            <span>Enseñando con amor</span>
           </div>
-          <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight leading-snug">
-            La alegría del conocimiento, enseñando con amor
+          <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight">
+            La alegría del conocimiento
           </h2>
-          <p className="text-white/85 text-xs sm:text-sm mt-1.5 font-normal leading-relaxed">
-            Bienvenido al centro de control institucional. Registra asistencias, gestiona fichas de estudiantes, docentes y practicantes, o emite certificados oficiales al instante.
+          <p className="text-blue-100 text-xs sm:text-sm mt-2 font-medium leading-relaxed">
+            Bienvenido al centro integral de control de Casita de Tareas. Registra la asistencia diaria de los niños, gestiona al equipo docente y practicantes, o emite certificados oficiales en 1 clic.
           </p>
-          <div className="flex flex-wrap gap-2.5 mt-5">
+          <div className="flex flex-wrap gap-3 mt-6">
             <Link
               href="/attendance/children"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white text-primary text-xs sm:text-sm font-bold rounded-xl shadow-md hover:bg-white/95 active:scale-[0.98] transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#E53935] hover:bg-[#D32F2F] text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-red-950/20 active:scale-[0.98] transition-all"
             >
-              <ClipboardDocumentCheckIcon className="w-4 h-4 text-primary" />
+              <ClipboardDocumentCheckIcon className="w-4 h-4" />
               Tomar Asistencia Niños
             </Link>
             <Link
               href="/attendance/staff"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-semibold rounded-xl backdrop-blur-md transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-semibold rounded-xl backdrop-blur-md transition-all"
             >
               <ClockIcon className="w-4 h-4" />
               Asistencia Personal
             </Link>
             <Link
               href="/certificates"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-semibold rounded-xl backdrop-blur-md transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-semibold rounded-xl backdrop-blur-md transition-all"
             >
               <DocumentCheckIcon className="w-4 h-4" />
               Emitir Certificados
@@ -154,11 +154,15 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Decoración gráfica de fondo sutil */}
-        <div className="absolute -right-8 -bottom-8 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute right-12 top-6 opacity-15 pointer-events-none hidden sm:block">
-          <span className="text-8xl select-none" role="img" aria-label="Casita">🏠</span>
+        {/* Logo Institucional destacado en el Hero Banner */}
+        <div className="absolute right-6 lg:right-10 top-1/2 -translate-y-1/2 hidden md:block">
+          <div className="w-32 h-32 lg:w-40 lg:h-40 rounded-3xl bg-white p-2.5 shadow-2xl border-4 border-white/40 flex items-center justify-center">
+            <img src="/logo.png" alt="Casita de Tareas" className="w-full h-full object-contain" />
+          </div>
         </div>
+
+        {/* Glow decorativo */}
+        <div className="absolute -right-8 -bottom-8 w-72 h-72 bg-blue-400/20 rounded-full blur-3xl pointer-events-none" />
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">

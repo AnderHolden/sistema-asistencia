@@ -50,7 +50,7 @@ export default function SettingsPage() {
   const [form, setForm] = useState<Record<string, string>>({
     institution_name: "Casita de Tareas",
     institution_nit: "900.584.219-4",
-    institution_slogan: "Acompañamiento Pedagógico, Refuerzo Escolar y Formación Integral",
+    institution_slogan: "La Alegría del Conocimiento, Enseñando con Amor",
     institution_address: "Calle Principal # 12 - 34, Barrio Centro",
     institution_city: "Bogotá D.C., Colombia",
     institution_phone: "(+57) 310 854 9210",

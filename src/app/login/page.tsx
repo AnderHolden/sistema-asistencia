@@ -63,28 +63,20 @@ export default function LoginPage() {
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-white rounded-full blur-3xl" />
         </div>
         <div className="relative z-10 text-center px-12 animate-fade-in-up">
-          <div className="w-24 h-24 mx-auto mb-6 bg-white/20 backdrop-blur-sm rounded-3xl flex items-center justify-center border border-white/25 shadow-xl p-2">
+          <div className="w-32 h-32 mx-auto mb-6 bg-white rounded-3xl p-2.5 shadow-2xl flex items-center justify-center border border-white/40">
             <img
               src="/logo.png"
               alt="Casita de Tareas"
-              className="w-full h-full object-contain rounded-2xl"
-              onError={(e) => {
-                // Si aún no está logo.png, muestra el icono
-                (e.currentTarget as HTMLElement).style.display = "none";
-                const fallback = e.currentTarget.parentElement?.querySelector(".fallback-icon");
-                if (fallback) (fallback as HTMLElement).style.display = "flex";
-              }}
+              className="w-full h-full object-contain"
             />
-            <div className="fallback-icon hidden w-full h-full items-center justify-center text-4xl select-none">
-              🏠
-            </div>
           </div>
           <h1 className="text-4xl font-extrabold text-white mb-2 tracking-tight">Casita de Tareas</h1>
-          <p className="text-amber-200 text-lg font-semibold tracking-wide mb-3">La alegría del conocimiento</p>
-          <div className="inline-flex items-center gap-1.5 px-4 py-1 rounded-full text-xs font-semibold bg-white/15 text-white backdrop-blur-md mb-6 border border-white/20">
-            <span>✨ Enseñando con amor</span>
+          <p className="text-amber-300 text-lg font-bold tracking-wide mb-3">La alegría del conocimiento</p>
+          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold bg-[#E53935] text-white shadow-md mb-6 border border-white/20">
+            <span role="img" aria-label="Amor">❤️</span>
+            <span>Enseñando con amor</span>
           </div>
-          <p className="text-white/80 text-sm max-w-md mx-auto leading-relaxed">
+          <p className="text-white/85 text-sm max-w-md mx-auto leading-relaxed font-medium">
             Plataforma institucional de asistencia, seguimiento académico y gestión de practicantes y docentes.
           </p>
           <div className="mt-10 flex justify-center gap-8">
@@ -100,11 +92,11 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 bg-gray-50 dark:bg-[#0c1220]">
         <div className="w-full max-w-md animate-fade-in-up">
           <div className="lg:hidden text-center mb-8">
-            <div className="w-16 h-16 mx-auto mb-3 gradient-primary rounded-2xl flex items-center justify-center shadow-lg text-3xl">
-              🏠
+            <div className="w-20 h-20 mx-auto mb-3 bg-white p-2 rounded-2xl shadow-md border border-blue-100 flex items-center justify-center">
+              <img src="/logo.png" alt="Casita de Tareas" className="w-full h-full object-contain" />
             </div>
-            <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white">Casita de Tareas</h2>
-            <p className="text-xs font-medium text-primary mt-0.5">La alegría del conocimiento, enseñando con amor</p>
+            <h2 className="text-2xl font-extrabold text-blue-900 dark:text-white">Casita de Tareas</h2>
+            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-0.5">La alegría del conocimiento • Enseñando con amor</p>
           </div>
 
           <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-8 sm:p-10 shadow-lg border border-gray-100 dark:border-gray-800">
@@ -143,7 +135,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <button type="submit" disabled={loading} className="w-full py-3.5 px-6 gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]">
+              <button type="submit" disabled={loading} className="w-full py-3.5 px-6 bg-[#E53935] hover:bg-[#D32F2F] text-white font-bold rounded-xl shadow-lg shadow-red-500/25 hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]">
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
                     <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>

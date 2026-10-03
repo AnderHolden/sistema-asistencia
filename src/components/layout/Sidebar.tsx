@@ -111,8 +111,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const linkClass = (active: boolean) =>
     `flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
       active
-        ? "bg-primary-light text-primary dark:bg-primary/20 dark:text-primary shadow-sm"
-        : "text-gray-600 hover:bg-gray-100/70 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800/60 dark:hover:text-gray-200"
+        ? "bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200 shadow-sm border border-blue-200/60 dark:border-blue-800/60"
+        : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200"
     }`;
 
   return (
@@ -133,28 +133,28 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         }`}
       >
         {/* Cabecera Institucional Casita de Tareas */}
-        <div className="flex flex-col justify-center px-5 py-4 border-b border-gray-200/80 dark:border-gray-800 bg-gradient-to-b from-primary/5 to-transparent">
+        <div className="flex flex-col justify-center px-5 py-4 border-b border-gray-200/80 dark:border-gray-800 bg-gradient-to-b from-blue-50/70 via-blue-50/20 to-transparent dark:from-blue-950/20 dark:to-transparent">
           <div className="flex items-center justify-between">
             <Link href="/dashboard" className="flex items-center gap-3 group" onClick={onClose}>
               {!logoError ? (
-                <div className="w-11 h-11 rounded-2xl bg-white dark:bg-gray-800 p-1 border border-primary/20 shadow-sm flex items-center justify-center shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-white p-1 border border-blue-200/80 shadow-sm flex items-center justify-center shrink-0 overflow-hidden">
                   <img
                     src="/logo.png"
                     alt="Casita de Tareas"
-                    className="w-full h-full object-contain rounded-xl"
+                    className="w-full h-full object-contain"
                     onError={() => setLogoError(true)}
                   />
                 </div>
               ) : (
-                <div className="w-11 h-11 rounded-2xl gradient-primary flex items-center justify-center shadow-md shrink-0">
-                  <span className="text-xl" role="img" aria-label="Casita">🏠</span>
+                <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center shadow-md shrink-0">
+                  <span className="text-2xl" role="img" aria-label="Casita">🏠</span>
                 </div>
               )}
               <div className="min-w-0">
-                <span className="block text-base font-extrabold text-gray-900 dark:text-white tracking-tight leading-tight group-hover:text-primary transition-colors">
+                <span className="block text-base font-extrabold text-blue-900 dark:text-blue-100 tracking-tight leading-tight group-hover:text-primary transition-colors">
                   Casita de Tareas
                 </span>
-                <span className="block text-[11px] font-medium text-primary dark:text-primary/90 truncate">
+                <span className="block text-[11px] font-bold text-amber-600 dark:text-amber-400 truncate">
                   La alegría del conocimiento
                 </span>
               </div>
@@ -167,9 +167,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <XMarkIcon className="w-5 h-5" />
             </button>
           </div>
-          <div className="mt-2.5 flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 rounded-lg">
-            <SparklesIcon className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span className="text-[10px] font-semibold text-amber-800 dark:text-amber-300 truncate">
+          <div className="mt-2.5 flex items-center gap-1.5 px-2.5 py-1 bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-900/40 rounded-lg">
+            <span className="text-xs" role="img" aria-label="Amor">❤️</span>
+            <span className="text-[10px] font-bold text-red-700 dark:text-red-300 truncate">
               Enseñando con amor
             </span>
           </div>

@@ -4,17 +4,38 @@
 
 @theme {
   --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --color-primary: #4f6ef7;
-  --color-primary-hover: #3d5be5;
-  --color-primary-light: #eef2ff;
-  --color-success: #10b981;
-  --color-success-light: #ecfdf5;
-  --color-danger: #ef4444;
+  
+  /* Azul Institucional (El cielo, la confianza y la seriedad académica) */
+  --color-primary: #1e40af;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #eff6ff;
+  --color-brand-blue: #1e40af;
+  --color-brand-sky: #0284c7;
+
+  /* Rojo Cálido / Coral (El techo de la casita, el corazón y "Enseñando con Amor" - Botones CTA) */
+  --color-danger: #e53935;
+  --color-danger-hover: #d32f2f;
   --color-danger-light: #fef2f2;
+  --color-brand-coral: #e53935;
+  --color-brand-coral-hover: #d32f2f;
+  --color-cta: #e53935;
+  --color-cta-hover: #d32f2f;
+
+  /* Amarillo / Dorado (El sol, la luz y "La Alegría del Conocimiento") */
   --color-warning: #f59e0b;
   --color-warning-light: #fffbeb;
-  --color-info: #06b6d4;
-  --color-info-light: #ecfeff;
+  --color-brand-gold: #fbc02d;
+  --color-brand-amber: #f59e0b;
+
+  /* Verde Esperanza (El césped, el crecimiento y el entorno educativo) */
+  --color-success: #10b981;
+  --color-success-hover: #2e7d32;
+  --color-success-light: #ecfdf5;
+  --color-brand-green: #2e7d32;
+
+  /* Info / Secundario */
+  --color-info: #0284c7;
+  --color-info-light: #f0f9ff;
 }
 
 * {
@@ -41,6 +62,8 @@ html {
 
 body {
   font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #1e293b;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -75,16 +98,20 @@ body {
 .stagger-children > *:nth-child(5) { animation-delay: 200ms; }
 .stagger-children > *:nth-child(6) { animation-delay: 250ms; }
 
-.gradient-primary { background: linear-gradient(135deg, #4f6ef7 0%, #7c5ef7 100%); }
-.gradient-success { background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%); }
-.gradient-danger { background: linear-gradient(135deg, #ef4444 0%, #f97316 100%); }
-.gradient-warm { background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); }
+/* Gradientes Oficiales Casita de Tareas */
+.gradient-primary { background: linear-gradient(135deg, #1e40af 0%, #0284c7 100%); }
+.gradient-coral { background: linear-gradient(135deg, #e53935 0%, #d32f2f 100%); }
+.gradient-cta { background: linear-gradient(135deg, #e53935 0%, #ef4444 100%); }
+.gradient-success { background: linear-gradient(135deg, #2e7d32 0%, #10b981 100%); }
+.gradient-danger { background: linear-gradient(135deg, #e53935 0%, #dc2626 100%); }
+.gradient-warm { background: linear-gradient(135deg, #fbc02d 0%, #f59e0b 100%); }
+.gradient-brand { background: linear-gradient(135deg, #1e40af 0%, #0284c7 50%, #e53935 100%); }
 
 .glass {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 .dark .glass {
-  background: rgba(20, 28, 46, 0.85);
+  background: rgba(20, 28, 46, 0.90);
 }

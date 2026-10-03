@@ -111,19 +111,26 @@ function AppShell({ children }: { children: React.ReactNode }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
-              <div className="flex items-center gap-2">
-                <span className="text-base font-extrabold text-gray-900 dark:text-white tracking-tight">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white p-0.5 border border-blue-200/80 shadow-xs flex items-center justify-center overflow-hidden shrink-0">
+                  <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+                </div>
+                <span className="text-base font-extrabold text-blue-900 dark:text-white tracking-tight">
                   Casita de Tareas
                 </span>
-                <span className="hidden md:inline-block text-xs text-gray-400 dark:text-gray-500">•</span>
-                <span className="hidden md:inline-block text-xs font-medium text-gray-500 dark:text-gray-400">
-                  La alegría del conocimiento, enseñando con amor
+                <span className="hidden md:inline-block text-xs text-gray-300 dark:text-gray-600">|</span>
+                <span className="hidden md:inline-block text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  La alegría del conocimiento
+                </span>
+                <span className="hidden lg:inline-block text-xs text-gray-300 dark:text-gray-600">•</span>
+                <span className="hidden lg:inline-block text-xs font-semibold text-red-600 dark:text-red-400">
+                  Enseñando con amor
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
                 {profile?.role === "super_admin" ? "Super Administrador" : "Operador"}
               </span>
               <NotificationBell onNavigate={(path) => router.push(path)} />

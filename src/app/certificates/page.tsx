@@ -692,14 +692,20 @@ function CertificatesContent() {
               Resumen en Tiempo Real
             </h3>
 
-            {/* Institution Badge */}
-            <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 text-xs font-bold text-primary mb-1">
-                <BuildingOffice2Icon className="w-4 h-4" />
-                {institution?.institution_name || "Casita de Tareas"}
+            {/* Institution Badge with Logo */}
+            <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/60 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-white p-1 border border-blue-200 shadow-xs flex items-center justify-center shrink-0 overflow-hidden">
+                <img src="/logo.png" alt="Casita de Tareas" className="w-full h-full object-contain" />
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">NIT: {institution?.nit}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{institution?.city}</p>
+              <div className="min-w-0">
+                <div className="text-xs font-extrabold text-blue-900 dark:text-blue-200 truncate">
+                  {institution?.institution_name || "Casita de Tareas"}
+                </div>
+                <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 truncate">
+                  {institution?.slogan || "La Alegría del Conocimiento, Enseñando con Amor"}
+                </p>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">NIT: {institution?.nit}</p>
+              </div>
             </div>
 
             {/* Metrics */}
