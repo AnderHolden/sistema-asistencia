@@ -6,6 +6,7 @@ import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import {
   getInstitutionProfile,
+  DEFAULT_INSTITUTION,
   generateChildAttendanceCertificate,
   generatePractitionerCertificate,
   generateTeacherLaborCertificate,
@@ -90,29 +91,43 @@ function CertificatesContent() {
   async function loadInitialData() {
     try {
       const [inst, cSnap, gSnap, tSnap, pSnap] = await Promise.all([
-        getInstitutionProfile(),
-        getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"), orderBy("first_name"))),
-        getDocs(collection(getFirebaseDb(), "groups")),
-        getDocs(query(collection(getFirebaseDb(), "teachers"), orderBy("first_name"))),
-        getDocs(query(collection(getFirebaseDb(), "practitioners"), orderBy("first_name"))),
+        getInstitutionProfile().catch(() => DEFAULT_INSTITUTION),
+        getDocs(collection(getFirebaseDb(), "children")).catch(() => ({ docs: [] } as any)),
+        getDocs(collection(getFirebaseDb(), "groups")).catch(() => ({ docs: [] } as any)),
+        getDocs(collection(getFirebaseDb(), "teachers")).catch(() => ({ docs: [] } as any)),
+        getDocs(collection(getFirebaseDb(), "practitioners")).catch(() => ({ docs: [] } as any)),
       ]);
 
-      setInstitution(inst);
-      const kids = cSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
+      setInstitution(inst || DEFAULT_INSTITUTION);
+
+      // Children list: active and sorted in JS
+      const kids = (cSnap.docs || [])
+        .map((d: any) => ({ id: d.id, ...d.data() } as Child))
+        .filter((c: Child) => c.status !== "inactive")
+        .sort((a: Child, b: Child) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
       setChildrenList(kids);
-      if (urlType === "children" && urlId && kids.some((k) => k.id === urlId)) {
+
+      if (urlType === "children" && urlId && kids.some((k: Child) => k.id === urlId)) {
         setSelectedChildId(urlId);
       } else if (kids.length > 0) {
         setSelectedChildId(kids[0].id);
       }
 
-      setGroups(gSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
+      // Groups
+      const groupList = (gSnap.docs || [])
+        .map((d: any) => ({ id: d.id, ...d.data() } as Group))
+        .sort((a: Group, b: Group) => (a.name || "").localeCompare(b.name || ""));
+      setGroups(groupList);
 
-      const tList = tSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
+      // Teachers
+      const tList = (tSnap.docs || [])
+        .map((d: any) => ({ id: d.id, ...d.data() } as Teacher))
+        .sort((a: Teacher, b: Teacher) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
       setTeachersList(tList);
-      if (urlType === "teachers" && urlId && tList.some((t) => t.id === urlId)) {
+
+      if (urlType === "teachers" && urlId && tList.some((t: Teacher) => t.id === urlId)) {
         setSelectedTeacherId(urlId);
-        const matched = tList.find((t) => t.id === urlId)!;
+        const matched = tList.find((t: Teacher) => t.id === urlId)!;
         setCustomJobTitle(matched.job_title || matched.role || "Docente Titular");
         setCustomContractType(matched.contract_type || "Término Fijo");
         if (matched.salary) setCustomSalary(matched.salary);
@@ -123,11 +138,15 @@ function CertificatesContent() {
         if (tList[0].salary) setCustomSalary(tList[0].salary);
       }
 
-      const pList = pSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
+      // Practitioners
+      const pList = (pSnap.docs || [])
+        .map((d: any) => ({ id: d.id, ...d.data() } as Practitioner))
+        .sort((a: Practitioner, b: Practitioner) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
       setPractitionersList(pList);
-      if (urlType === "practitioners" && urlId && pList.some((p) => p.id === urlId)) {
+
+      if (urlType === "practitioners" && urlId && pList.some((p: Practitioner) => p.id === urlId)) {
         setSelectedPractitionerId(urlId);
-        const matched = pList.find((p) => p.id === urlId)!;
+        const matched = pList.find((p: Practitioner) => p.id === urlId)!;
         setDailyHours(matched.daily_hours || 4);
       } else if (pList.length > 0) {
         setSelectedPractitionerId(pList[0].id);
@@ -135,7 +154,7 @@ function CertificatesContent() {
       }
     } catch (err) {
       console.error("Error loading certificates data:", err);
-      toast.error("Error al cargar datos institucionales");
+      setInstitution(DEFAULT_INSTITUTION);
     } finally {
       setLoading(false);
     }
@@ -155,12 +174,14 @@ function CertificatesContent() {
     try {
       const q = query(
         collection(getFirebaseDb(), "attendance_children"),
-        where("child_id", "==", selectedChildId),
-        where("attendance_date", ">=", startDate),
-        where("attendance_date", "<=", endDate)
+        where("child_id", "==", selectedChildId)
       );
       const snap = await getDocs(q);
-      const records = snap.docs.map((d) => d.data() as AttendanceChild);
+      const allRecords = snap.docs.map((d) => d.data() as AttendanceChild);
+      const records = allRecords.filter((r) => {
+        if (!r.attendance_date) return false;
+        return r.attendance_date >= startDate && r.attendance_date <= endDate;
+      });
 
       const present = records.filter((r) => r.status === "present").length;
       const absent = records.filter((r) => r.status === "absent").length;
@@ -174,8 +195,8 @@ function CertificatesContent() {
         percentage: pct,
         hours: present * 4,
       });
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error("Error computing child stats:", err);
     } finally {
       setCalculating(false);
     }
@@ -186,12 +207,14 @@ function CertificatesContent() {
     try {
       const q = query(
         collection(getFirebaseDb(), "attendance_staff"),
-        where("staff_id", "==", selectedPractitionerId),
-        where("attendance_date", ">=", startDate),
-        where("attendance_date", "<=", endDate)
+        where("staff_id", "==", selectedPractitionerId)
       );
       const snap = await getDocs(q);
-      const records = snap.docs.map((d) => d.data() as AttendanceStaff);
+      const allRecords = snap.docs.map((d) => d.data() as AttendanceStaff);
+      const records = allRecords.filter((r) => {
+        if (!r.attendance_date) return false;
+        return r.attendance_date >= startDate && r.attendance_date <= endDate;
+      });
 
       const present = records.filter((r) => r.check_in != null && r.status !== "absent").length;
       const absent = records.filter((r) => r.status === "absent").length;
@@ -205,8 +228,8 @@ function CertificatesContent() {
         percentage: total > 0 ? Math.round((present / total) * 100) : 100,
         hours: totalHours,
       });
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error("Error computing practitioner stats:", err);
     } finally {
       setCalculating(false);
     }
@@ -228,7 +251,7 @@ function CertificatesContent() {
 
   // Generate / Download Handler
   async function handleGenerate(action: "save" | "blob" = "save") {
-    if (!institution) return;
+    const inst = institution || DEFAULT_INSTITUTION;
     setGenerating(true);
 
     try {
@@ -248,7 +271,7 @@ function CertificatesContent() {
             totalPresentDays: calculatedStats.presentDays,
             totalAbsentDays: calculatedStats.absentDays,
             purpose,
-            institution,
+            institution: inst,
           },
           action
         );
@@ -274,7 +297,7 @@ function CertificatesContent() {
             totalHours: calculatedStats.hours,
             dailyHours,
             performanceNote,
-            institution,
+            institution: inst,
           },
           action
         );
@@ -298,7 +321,7 @@ function CertificatesContent() {
             endDate: isCurrentlyWorking ? null : customEndDate || endDate,
             salary: customSalary,
             purpose,
-            institution,
+            institution: inst,
           },
           action
         );

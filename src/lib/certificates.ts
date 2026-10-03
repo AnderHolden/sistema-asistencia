@@ -28,7 +28,7 @@ export const DEFAULT_INSTITUTION: InstitutionProfile = {
 
 export async function getInstitutionProfile(): Promise<InstitutionProfile> {
   try {
-    const snap = await getDocs(query(collection(getFirebaseDb(), "system_settings"), orderBy("setting_key")));
+    const snap = await getDocs(collection(getFirebaseDb(), "system_settings"));
     if (snap.empty) return DEFAULT_INSTITUTION;
 
     const map: Record<string, string> = {};
