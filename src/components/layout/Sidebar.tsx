@@ -26,11 +26,12 @@ interface SidebarProps {
 
 const mainNav = [
   { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
-  { name: "Ninos", href: "/children", icon: UserGroupIcon },
+  { name: "Asistencia Niños", href: "/attendance/children", icon: ClipboardDocumentListIcon },
+  { name: "Asistencia Personal", href: "/attendance/staff", icon: ClipboardDocumentListIcon },
+  { name: "Niños", href: "/children", icon: UserGroupIcon },
   { name: "Profesores", href: "/teachers", icon: UserIcon },
   { name: "Practicantes", href: "/practitioners", icon: UserIcon },
-  { name: "Asistencia Ninos", href: "/attendance/children", icon: ClipboardDocumentListIcon },
-  { name: "Asistencia Personal", href: "/attendance/staff", icon: ClipboardDocumentListIcon },
+  { name: "Certificados", href: "/certificates", icon: DocumentTextIcon },
   { name: "Reportes", href: "/reports", icon: ChartBarIcon },
 ];
 

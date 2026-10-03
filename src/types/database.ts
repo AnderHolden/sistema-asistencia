@@ -16,12 +16,32 @@ export interface Group {
   updated_at: string;
 }
 
+export interface InstitutionProfile {
+  id?: string;
+  institution_name: string;
+  nit: string;
+  slogan?: string;
+  address: string;
+  city: string;
+  phone: string;
+  email: string;
+  legal_representative: string;
+  representative_id?: string;
+  representative_role?: string;
+  signature_url?: string | null;
+  logo_url?: string | null;
+  updated_at?: string;
+}
+
 export interface Child {
   id: string;
   child_id_code?: string;
   first_name: string;
   last_name: string;
   document: string | null;
+  document_type?: string;
+  guardian_name?: string;
+  guardian_phone?: string;
   date_of_birth: string;
   age: number;
   group_id: string | null;
@@ -29,6 +49,7 @@ export interface Child {
   status: "active" | "inactive";
   observations: string | null;
   photo_url: string | null;
+  enrollment_date?: string;
   created_at: string;
   updated_at: string;
 }
@@ -38,10 +59,15 @@ export interface Teacher {
   first_name: string;
   last_name: string;
   document: string | null;
+  document_type?: string;
+  job_title?: string;
+  contract_type?: string;
   email: string | null;
   phone: string | null;
   role: string;
   hire_date: string;
+  end_date?: string | null;
+  salary?: string | null;
   status: "active" | "inactive";
   photo_url: string | null;
   created_at: string;
@@ -53,11 +79,18 @@ export interface Practitioner {
   first_name: string;
   last_name: string;
   document: string | null;
+  document_type?: string;
+  university?: string;
+  career?: string;
+  supervisor_name?: string | null;
+  daily_hours?: number;
   email: string | null;
   phone: string | null;
   role: string;
   study: string | null;
   hire_date: string;
+  start_date?: string;
+  end_date?: string | null;
   status: "active" | "inactive";
   photo_url: string | null;
   created_at: string;
