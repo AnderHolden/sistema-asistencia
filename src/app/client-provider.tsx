@@ -97,15 +97,35 @@ function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen bg-gray-50 dark:bg-[#0c1220]">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <main className="flex-1 min-w-0">
-        <header className="sticky top-0 z-30 glass border-b border-gray-200 dark:border-gray-800">
+        <header className="sticky top-0 z-30 glass border-b border-gray-200/80 dark:border-gray-800 backdrop-blur-md bg-white/80 dark:bg-[#0c1220]/80">
           <div className="flex h-16 items-center justify-between px-4 lg:px-8">
-            <button onClick={() => setSidebarOpen(true)} aria-label="Abrir menu de navegacion" aria-expanded={sidebarOpen} aria-controls="sidebar" className="lg:hidden w-10 h-10 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <h1 className="hidden sm:block text-base font-bold text-gray-900 dark:text-white tracking-tight">Sistema de Asistencia</h1>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Abrir menu de navegacion"
+                aria-expanded={sidebarOpen}
+                aria-controls="sidebar"
+                className="lg:hidden w-10 h-10 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-extrabold text-gray-900 dark:text-white tracking-tight">
+                  Casita de Tareas
+                </span>
+                <span className="hidden md:inline-block text-xs text-gray-400 dark:text-gray-500">•</span>
+                <span className="hidden md:inline-block text-xs font-medium text-gray-500 dark:text-gray-400">
+                  La alegría del conocimiento, enseñando con amor
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
+                {profile?.role === "super_admin" ? "Super Administrador" : "Operador"}
+              </span>
               <NotificationBell onNavigate={(path) => router.push(path)} />
               <ThemeToggle />
             </div>

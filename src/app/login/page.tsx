@@ -63,38 +63,54 @@ export default function LoginPage() {
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-white rounded-full blur-3xl" />
         </div>
         <div className="relative z-10 text-center px-12 animate-fade-in-up">
-          <div className="w-24 h-24 mx-auto mb-8 bg-white/20 backdrop-blur-sm rounded-3xl flex items-center justify-center border border-white/20">
-            <svg className="w-14 h-14 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
+          <div className="w-24 h-24 mx-auto mb-6 bg-white/20 backdrop-blur-sm rounded-3xl flex items-center justify-center border border-white/25 shadow-xl p-2">
+            <img
+              src="/logo.png"
+              alt="Casita de Tareas"
+              className="w-full h-full object-contain rounded-2xl"
+              onError={(e) => {
+                // Si aún no está logo.png, muestra el icono
+                (e.currentTarget as HTMLElement).style.display = "none";
+                const fallback = e.currentTarget.parentElement?.querySelector(".fallback-icon");
+                if (fallback) (fallback as HTMLElement).style.display = "flex";
+              }}
+            />
+            <div className="fallback-icon hidden w-full h-full items-center justify-center text-4xl select-none">
+              🏠
+            </div>
           </div>
-          <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">Sistema de<br/>Gestion de Asistencia</h1>
-          <p className="text-white/70 text-lg max-w-md mx-auto leading-relaxed">Control digital inteligente para la gestion de asistencia de ninos, profesores y practicantes.</p>
-          <div className="mt-12 flex justify-center gap-8">
-            <div className="text-center"><div className="text-3xl font-bold text-white">100%</div><div className="text-white/60 text-sm">Digital</div></div>
+          <h1 className="text-4xl font-extrabold text-white mb-2 tracking-tight">Casita de Tareas</h1>
+          <p className="text-amber-200 text-lg font-semibold tracking-wide mb-3">La alegría del conocimiento</p>
+          <div className="inline-flex items-center gap-1.5 px-4 py-1 rounded-full text-xs font-semibold bg-white/15 text-white backdrop-blur-md mb-6 border border-white/20">
+            <span>✨ Enseñando con amor</span>
+          </div>
+          <p className="text-white/80 text-sm max-w-md mx-auto leading-relaxed">
+            Plataforma institucional de asistencia, seguimiento académico y gestión de practicantes y docentes.
+          </p>
+          <div className="mt-10 flex justify-center gap-8">
+            <div className="text-center"><div className="text-2xl font-bold text-white">Niños</div><div className="text-white/70 text-xs">Estudiantes</div></div>
             <div className="w-px bg-white/20" />
-            <div className="text-center"><div className="text-3xl font-bold text-white">24/7</div><div className="text-white/60 text-sm">Disponible</div></div>
+            <div className="text-center"><div className="text-2xl font-bold text-white">Personal</div><div className="text-white/70 text-xs">Docentes y Prácticas</div></div>
             <div className="w-px bg-white/20" />
-            <div className="text-center"><div className="text-3xl font-bold text-white">PWA</div><div className="text-white/60 text-sm">Instalable</div></div>
+            <div className="text-center"><div className="text-2xl font-bold text-white">Oficial</div><div className="text-white/70 text-xs">Certificados</div></div>
           </div>
         </div>
       </div>
 
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 bg-gray-50 dark:bg-[#0c1220]">
         <div className="w-full max-w-md animate-fade-in-up">
-          <div className="lg:hidden text-center mb-10">
-            <div className="w-16 h-16 mx-auto mb-4 gradient-primary rounded-2xl flex items-center justify-center shadow-lg">
-              <svg className="w-9 h-9 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
+          <div className="lg:hidden text-center mb-8">
+            <div className="w-16 h-16 mx-auto mb-3 gradient-primary rounded-2xl flex items-center justify-center shadow-lg text-3xl">
+              🏠
             </div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Asistencia</h2>
+            <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white">Casita de Tareas</h2>
+            <p className="text-xs font-medium text-primary mt-0.5">La alegría del conocimiento, enseñando con amor</p>
           </div>
 
           <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-8 sm:p-10 shadow-lg border border-gray-100 dark:border-gray-800">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Bienvenido</h2>
-              <p className="text-gray-500 dark:text-gray-400">Ingresa tus credenciales para acceder al sistema</p>
+            <div className="mb-7">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1.5">Bienvenido</h2>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Ingresa tus credenciales para acceder al sistema institucional</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">

@@ -6,13 +6,13 @@ import { ClientProvider } from "./client-provider";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Sistema de Asistencia",
-  description: "Sistema de control de asistencia para institucion infantil",
+  title: "Casita de Tareas | Sistema de Asistencia",
+  description: "La alegría del conocimiento, enseñando con amor - Sistema de control de asistencia y talento humano",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Asistencia",
+    title: "Casita de Tareas",
   },
 };
 

@@ -4,7 +4,19 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
-import { UserGroupIcon, AcademicCapIcon, BriefcaseIcon, CheckCircleIcon, XCircleIcon, ArrowTrendingUpIcon } from "@heroicons/react/24/outline";
+import Link from "next/link";
+import { 
+  UserGroupIcon, 
+  AcademicCapIcon, 
+  BriefcaseIcon, 
+  CheckCircleIcon, 
+  XCircleIcon, 
+  ArrowTrendingUpIcon,
+  SparklesIcon,
+  ClipboardDocumentCheckIcon,
+  ClockIcon,
+  DocumentCheckIcon
+} from "@heroicons/react/24/outline";
 import { DynamicBarChart } from "@/components/charts/DynamicCharts";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
@@ -104,13 +116,58 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Banner Institucional Casita de Tareas */}
+      <div className="gradient-primary rounded-3xl p-6 lg:p-7 text-white shadow-md relative overflow-hidden">
+        <div className="relative z-10 max-w-2xl">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/20 backdrop-blur-md mb-3 text-white">
+            <SparklesIcon className="w-3.5 h-3.5 text-amber-300" />
+            <span>Casita de Tareas • Versión 2.0</span>
+          </div>
+          <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight leading-snug">
+            La alegría del conocimiento, enseñando con amor
+          </h2>
+          <p className="text-white/85 text-xs sm:text-sm mt-1.5 font-normal leading-relaxed">
+            Bienvenido al centro de control institucional. Registra asistencias, gestiona fichas de estudiantes, docentes y practicantes, o emite certificados oficiales al instante.
+          </p>
+          <div className="flex flex-wrap gap-2.5 mt-5">
+            <Link
+              href="/attendance/children"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white text-primary text-xs sm:text-sm font-bold rounded-xl shadow-md hover:bg-white/95 active:scale-[0.98] transition-all"
+            >
+              <ClipboardDocumentCheckIcon className="w-4 h-4 text-primary" />
+              Tomar Asistencia Niños
+            </Link>
+            <Link
+              href="/attendance/staff"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-semibold rounded-xl backdrop-blur-md transition-all"
+            >
+              <ClockIcon className="w-4 h-4" />
+              Asistencia Personal
+            </Link>
+            <Link
+              href="/certificates"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-semibold rounded-xl backdrop-blur-md transition-all"
+            >
+              <DocumentCheckIcon className="w-4 h-4" />
+              Emitir Certificados
+            </Link>
+          </div>
+        </div>
+
+        {/* Decoración gráfica de fondo sutil */}
+        <div className="absolute -right-8 -bottom-8 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute right-12 top-6 opacity-15 pointer-events-none hidden sm:block">
+          <span className="text-8xl select-none" role="img" aria-label="Casita">🏠</span>
+        </div>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Dashboard</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Resumen general del sistema de asistencia</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Métricas del Sistema</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Resumen en tiempo real de asistencia y personal activo</p>
         </div>
         {stats.lastAttendance && (
-          <p className="text-xs text-gray-400 dark:text-gray-500">Ultima asistencia: {stats.lastAttendance}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">Última asistencia registrada: {stats.lastAttendance}</p>
         )}
       </div>
 
