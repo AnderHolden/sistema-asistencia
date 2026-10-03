@@ -94,10 +94,10 @@ service cloud.firestore {
     }
 
     // ============================================
-    // correction_requests - Cualquiera puede crear, solo admin lee/resuelve
+    // correction_requests - Cualquiera puede crear, solo admin lee/resuelve, operador lee las suyas
     // ============================================
     match /correction_requests/{reqId} {
-      allow read: if isAuth() && isAdmin();
+      allow read: if isAuth() && (isAdmin() || resource.data.requested_by == request.auth.uid);
       allow create: if isAuth();
       allow update: if isAuth() && isAdmin();
       allow delete: if false;

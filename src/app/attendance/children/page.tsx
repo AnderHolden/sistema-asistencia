@@ -33,6 +33,7 @@ export default function ChildrenAttendancePage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [correctionItem, setCorrectionItem] = useState<ChildItem | null>(null);
   const [correctionReason, setCorrectionReason] = useState("");
+  const [correctionTargetStatus, setCorrectionTargetStatus] = useState<"present" | "absent">("present");
   const [highlightChildId, setHighlightChildId] = useState<string | null>(null);
   const [myCorrections, setMyCorrections] = useState<CorrectionRequestChild[]>([]);
   const [holidays, setHolidays] = useState<string[]>([]);
@@ -186,7 +187,8 @@ export default function ChildrenAttendancePage() {
         correctionItem.child.child_id_code || "S/I",
         oldStatus,
         date,
-        correctionReason.trim()
+        correctionReason.trim(),
+        correctionTargetStatus
       );
       toast.success("Solicitud enviada al administrador");
       // Send email notification to admins
@@ -199,6 +201,7 @@ export default function ChildrenAttendancePage() {
             childCode: correctionItem.child.child_id_code || "S/I",
             date,
             reason: correctionReason.trim(),
+            newStatus: correctionTargetStatus,
           }),
         });
       } catch { /* ignore email errors */ }
@@ -319,15 +322,31 @@ export default function ChildrenAttendancePage() {
                     {(item.existing as AttendanceChild & { check_in?: string }).check_in && (
                       <span className="text-xs text-gray-400">{formatTime((item.existing as AttendanceChild & { check_in?: string }).check_in!)}</span>
                     )}
-                    {!isAdmin && (
-                      <button
-                        onClick={() => { setCorrectionItem(item); setCorrectionReason(""); }}
-                        aria-label="Reportar error"
-                        className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-all active:scale-95"
-                      >
-                        <ExclamationTriangleIcon className="w-4 h-4" />
-                      </button>
-                    )}
+                    {!isAdmin && (() => {
+                      const pendingCorr = myCorrections.find((c) => c.child_id === item.child.id && c.status === "pending" && c.attendance_date === date);
+                      if (pendingCorr) {
+                        return (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300">
+                            <ClockIcon className="w-4 h-4 animate-pulse text-amber-500" />
+                            En revision
+                          </span>
+                        );
+                      }
+                      return (
+                        <button
+                          onClick={() => {
+                            setCorrectionItem(item);
+                            setCorrectionReason("");
+                            setCorrectionTargetStatus(item.existing?.status === "present" ? "absent" : "present");
+                          }}
+                          aria-label="Reportar error"
+                          title="Solicitar correccion al administrador"
+                          className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-all active:scale-95"
+                        >
+                          <ExclamationTriangleIcon className="w-4 h-4" />
+                        </button>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <>
@@ -363,6 +382,37 @@ export default function ChildrenAttendancePage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Marcado como: <span className={`font-bold ${correctionItem.existing?.status === "present" ? "text-emerald-500" : "text-red-500"}`}>{correctionItem.existing?.status === "present" ? "Asistio" : "No asistio"}</span></p>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-300">Describe el error cometido. El administrador revisara tu solicitud.</p>
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                Cambiar estado a:
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCorrectionTargetStatus("present")}
+                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border transition-all ${
+                    correctionTargetStatus === "present"
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 shadow-sm ring-2 ring-emerald-500/20"
+                      : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <CheckCircleIcon className="w-5 h-5 text-emerald-500" />
+                  Asistio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCorrectionTargetStatus("absent")}
+                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border transition-all ${
+                    correctionTargetStatus === "absent"
+                      ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 shadow-sm ring-2 ring-red-500/20"
+                      : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <XCircleIcon className="w-5 h-5 text-red-500" />
+                  No asistio
+                </button>
+              </div>
+            </div>
             <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo del error *</label><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ej: Marque No asistio por error, el nino si asistio..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => setCorrectionItem(null)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors">Cancelar</button>

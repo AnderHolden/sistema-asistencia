@@ -139,6 +139,8 @@ export interface CorrectionRequest {
   staff_type: "teacher" | "practitioner";
   staff_name: string;
   attendance_date: string;
+  action_requested?: "enable_signature" | "mark_present";
+  action_resolved?: "signature_enabled" | "marked_present";
   requested_by: string;
   requested_by_email: string;
   reason: string;
@@ -157,6 +159,8 @@ export interface CorrectionRequestChild {
   child_name: string;
   child_id_code: string;
   old_status: "present" | "absent";
+  new_status?: "present" | "absent";
+  action_resolved?: "status_updated" | "record_cleared";
   attendance_date: string;
   requested_by: string;
   requested_by_email: string;

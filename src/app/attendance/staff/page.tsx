@@ -6,14 +6,14 @@ import { getFirebaseDb } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
 import { getTodayDate, formatTime, isWeekday } from "@/lib/utils";
 import { registerStaffAttendance, registerStaffAbsent, autoMarkAbsentStaff, updateStaffAttendance } from "@/lib/attendance";
-import { createCorrectionRequest } from "@/lib/corrections";
+import { createCorrectionRequest, getMyStaffCorrections } from "@/lib/corrections";
 import { logAction } from "@/lib/audit";
 import { toast } from "react-hot-toast";
 import { PencilIcon, CheckCircleIcon, XCircleIcon, ClockIcon, UserGroupIcon, ArrowPathIcon, MagnifyingGlassIcon, ArrowUpIcon, ArrowDownIcon } from "@heroicons/react/24/outline";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import type { Teacher, Practitioner, AttendanceStaff } from "@/types/database";
+import type { Teacher, Practitioner, AttendanceStaff, CorrectionRequest } from "@/types/database";
 
 interface StaffItem { staff: Teacher | Practitioner; type: "teacher" | "practitioner"; attendance: AttendanceStaff | null; }
 
@@ -33,11 +33,44 @@ export default function StaffAttendancePage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [correctionItem, setCorrectionItem] = useState<StaffItem | null>(null);
   const [correctionReason, setCorrectionReason] = useState("");
+  const [actionRequested, setActionRequested] = useState<"enable_signature" | "mark_present">("enable_signature");
+  const [myCorrections, setMyCorrections] = useState<CorrectionRequest[]>([]);
   const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [holidays, setHolidays] = useState<string[]>([]);
 
   useEffect(() => { loadData(); const i = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(i); }, []);
+
+  useEffect(() => {
+    if (user && !isAdmin) {
+      loadMyCorrections();
+      const interval = setInterval(loadMyCorrections, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isAdmin]);
+
+  async function loadMyCorrections() {
+    if (!user) return;
+    try {
+      const data = await getMyStaffCorrections(user.uid);
+      const prevPending = myCorrections.filter((c) => c.status === "pending").length;
+      const newPending = data.filter((c) => c.status === "pending").length;
+      if (prevPending > 0 && newPending < prevPending) {
+        const approved = data.find((c) => c.status === "approved");
+        if (approved) {
+          toast.success(`Solicitud aprobada para ${approved.staff_name}. ${approved.action_resolved === "signature_enabled" ? "Ya puede firmar." : "Marcado como presente."}`);
+          loadData();
+        }
+        const rejected = data.find((c) => c.status === "rejected");
+        if (rejected) {
+          toast.error(`Solicitud rechazada: ${rejected.admin_note || "Sin motivo"}`);
+        }
+      }
+      setMyCorrections(data);
+    } catch (e) {
+      console.error("Error loading staff corrections:", e);
+    }
+  }
 
   async function loadData() {
     try {
@@ -150,11 +183,13 @@ export default function StaffAttendancePage() {
         correctionItem.type,
         `${correctionItem.staff.first_name} ${correctionItem.staff.last_name}`,
         date,
-        correctionReason.trim()
+        correctionReason.trim(),
+        actionRequested
       );
       toast.success("Solicitud enviada al administrador");
       setCorrectionItem(null);
       setCorrectionReason("");
+      loadMyCorrections();
     } catch (err) { console.error("Error requesting correction:", err); toast.error("Error al enviar solicitud"); }
   }
 
@@ -243,9 +278,31 @@ export default function StaffAttendancePage() {
                     {!item.attendance.check_in ? (
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500 text-white shadow-md text-sm font-bold"><XCircleIcon className="w-4 h-4" />No asistio</div>
-                        <button onClick={() => { setCorrectionItem(item); setCorrectionReason(""); }} aria-label="Solicitar correccion" className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-all active:scale-95">
-                          <ArrowPathIcon className="w-4 h-4" />
-                        </button>
+                        {!isAdmin && (() => {
+                          const pendingCorr = myCorrections.find((c) => c.staff_id === item.staff.id && c.status === "pending" && c.attendance_date === date);
+                          if (pendingCorr) {
+                            return (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300">
+                                <ClockIcon className="w-4 h-4 animate-pulse text-amber-500" />
+                                En revision
+                              </span>
+                            );
+                          }
+                          return (
+                            <button
+                              onClick={() => {
+                                setCorrectionItem(item);
+                                setCorrectionReason("");
+                                setActionRequested("enable_signature");
+                              }}
+                              aria-label="Solicitar correccion"
+                              title="Solicitar correccion al administrador"
+                              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-all active:scale-95"
+                            >
+                              <ArrowPathIcon className="w-4 h-4" />
+                            </button>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20"><CheckCircleIcon className="w-4 h-4 text-emerald-500" /><span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Presente</span><span className="text-xs text-gray-400">{item.attendance.check_in ? formatTime(item.attendance.check_in) : ""}</span></div>
@@ -270,14 +327,44 @@ export default function StaffAttendancePage() {
 
       {filtered.length === 0 && <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-800"><p className="text-gray-400 font-medium">{search ? "No se encontraron resultados" : "No hay personal registrado"}</p></div>}
 
-      <Modal open={!!correctionItem} onClose={() => setCorrectionItem(null)} title="Solicitar Correccion" size="md">
+      <Modal open={!!correctionItem} onClose={() => setCorrectionItem(null)} title="Solicitar Correccion de Personal" size="md">
         {correctionItem && (
           <div className="space-y-4">
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
               <p className="font-bold text-gray-900 dark:text-white">{correctionItem.staff.first_name} {correctionItem.staff.last_name}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{correctionItem.type === "teacher" ? "Profesor" : "Practicante"} · Marcado como No asistio</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{correctionItem.type === "teacher" ? "Profesor" : "Practicante"} · Marcado actualmente como No asistio</p>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-300">La solicitud sera revisada por el administrador. Si se aprueba, se habilitara la firma.</p>
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                Accion solicitada:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActionRequested("enable_signature")}
+                  className={`p-3 rounded-xl text-left border transition-all ${
+                    actionRequested === "enable_signature"
+                      ? "border-primary bg-primary/5 dark:bg-primary/10 ring-2 ring-primary/20 text-gray-900 dark:text-white"
+                      : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <p className="font-bold text-sm">Habilitar firma</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Permite que el docente firme en pantalla</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActionRequested("mark_present")}
+                  className={`p-3 rounded-xl text-left border transition-all ${
+                    actionRequested === "mark_present"
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20 text-gray-900 dark:text-white"
+                      : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <p className="font-bold text-sm">Marcar presente</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Admin aprueba y marca presente de inmediato</p>
+                </button>
+              </div>
+            </div>
             <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la solicitud *</label><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ej: Marque No asistio por error, el personal si asistio..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
             <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setCorrectionItem(null)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors">Cancelar</button><button onClick={requestCorrection} disabled={!correctionReason.trim()} className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md disabled:opacity-50">Enviar Solicitud</button></div>
           </div>
