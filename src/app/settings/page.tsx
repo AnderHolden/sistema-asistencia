@@ -27,6 +27,10 @@ import {
   PaperAirplaneIcon,
   ExclamationTriangleIcon,
   SparklesIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  KeyIcon,
+  ServerIcon,
 } from "@heroicons/react/24/outline";
 import type { Child, Group, Teacher, Practitioner } from "@/types/database";
 
@@ -47,6 +51,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"company" | "rules" | "holidays" | "notifications" | "downloads" | "backup">("company");
   const [settings, setSettings] = useState<Setting[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({
     institution_name: "Casita de Tareas",
     institution_nit: "900.584.219-4",
@@ -61,6 +66,19 @@ export default function SettingsPage() {
     auto_mark_children: "17:50",
     auto_mark_staff: "16:30",
     work_days: "1,2,3,4,5",
+    // Email & Notification System Preferences
+    email_provider: "smtp",
+    smtp_host: "smtp.gmail.com",
+    smtp_port: "465",
+    smtp_secure: "true",
+    smtp_user: "",
+    smtp_pass: "",
+    smtp_from: "Casita de Tareas <direccion@casitadetareas.com>",
+    resend_api_key: "",
+    resend_from: "Casita de Tareas <onboarding@resend.dev>",
+    director_notification_email: "direccion@casitadetareas.com",
+    notify_guardians_enabled: "true",
+    notify_admin_daily_report: "true",
   });
   const [saving, setSaving] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -124,15 +142,29 @@ export default function SettingsPage() {
       const res = await fetch("/api/email/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetEmail: testEmail.trim() }),
+        body: JSON.stringify({
+          targetEmail: testEmail.trim(),
+          configOverride: {
+            email_provider: form.email_provider || "smtp",
+            smtp_host: form.smtp_host || "",
+            smtp_port: form.smtp_port || "465",
+            smtp_secure: form.smtp_secure || "true",
+            smtp_user: form.smtp_user || "",
+            smtp_pass: form.smtp_pass || "",
+            smtp_from: form.smtp_from || "",
+            resend_api_key: form.resend_api_key || "",
+            resend_from: form.resend_from || "",
+          },
+        }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
         toast.success("¡Correo de prueba enviado con éxito!");
         setTestEmailResult({
           success: true,
-          message: `Mensaje entregado vía ${data.provider.toUpperCase()} a ${data.sentTo}. Revisa tu bandeja de entrada o spam.`,
+          message: `Mensaje entregado vía ${(data.provider || "correo").toUpperCase()} a ${data.sentTo}. Revisa tu bandeja de entrada o spam.`,
         });
+        checkEmailStatus();
       } else {
         toast.error(data.error || "Fallo al enviar correo");
         setTestEmailResult({
@@ -929,22 +961,34 @@ export default function SettingsPage() {
         <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <EnvelopeIcon className="w-5 h-5 text-primary" />
-                Sistema Automatizado de Notificaciones y Correo
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <EnvelopeIcon className="w-6 h-6 text-primary" />
+                Sistema de Notificaciones y Correo Electrónico
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Monitorea el estado de entrega de alertas, resoluciones de corrección y reportes de inasistencia.
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Configura las credenciales de correo (SMTP o Resend), activa las alertas automáticas a acudientes y los reportes diarios de dirección.
               </p>
             </div>
 
-            <button
-              onClick={checkEmailStatus}
-              disabled={loadingEmailStatus}
-              className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-2"
-            >
-              {loadingEmailStatus ? "Comprobando..." : "Actualizar Diagnóstico"}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={checkEmailStatus}
+                disabled={loadingEmailStatus}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-2"
+              >
+                {loadingEmailStatus ? "Comprobando..." : "Actualizar Diagnóstico"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="px-5 py-2 gradient-primary text-white font-bold text-xs rounded-xl shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {saving ? "Guardando..." : "Guardar Cambios"}
+              </button>
+            </div>
           </div>
 
           {/* Live Service Status Card */}
@@ -956,9 +1000,9 @@ export default function SettingsPage() {
             }`}
           >
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3.5">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-sm shrink-0 ${
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-white shadow-sm shrink-0 ${
                     emailStatus?.configured ? "bg-emerald-600" : "bg-amber-500"
                   }`}
                 >
@@ -976,8 +1020,8 @@ export default function SettingsPage() {
                   </h4>
                   <p className="text-xs opacity-90 mt-0.5">
                     {emailStatus?.configured
-                      ? `Proveedor activo: ${emailStatus.provider === "resend" ? "Resend API (Cloud Native)" : "Servidor SMTP / Nodemailer"} · Remitente: ${emailStatus.from || "Por defecto"}`
-                      : "Para que el sistema envíe correos automáticos en Vercel, agrega las variables de entorno de SMTP o Resend en tu panel de Vercel."}
+                      ? `Proveedor activo: ${emailStatus.provider === "resend" ? "Resend API (Cloud)" : "Servidor SMTP / Nodemailer"} · Remitente: ${emailStatus.from || form.smtp_from || "Por defecto"} · Destino Dirección: ${form.director_notification_email || "No asignado"}`
+                      : "Ingresa los datos de tu servidor de correo (ej. Gmail con contraseña de aplicación o Resend) en el formulario a continuación."}
                   </p>
                 </div>
               </div>
@@ -994,16 +1038,276 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Formulario de Configuración del Proveedor */}
+          <div className="p-6 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-2">
+                <ServerIcon className="w-5 h-5 text-primary" />
+                <h4 className="font-bold text-base text-gray-900 dark:text-white">
+                  1. Configuración del Servidor de Correo Saliente
+                </h4>
+              </div>
+
+              {/* Selector de Proveedor */}
+              <div className="inline-flex rounded-xl p-1 bg-white dark:bg-[#0c1220] border border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, email_provider: "smtp" })}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    (form.email_provider || "smtp") === "smtp"
+                      ? "gradient-primary text-white shadow-xs"
+                      : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                  }`}
+                >
+                  Servidor SMTP / Gmail
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, email_provider: "resend" })}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    form.email_provider === "resend"
+                      ? "gradient-primary text-white shadow-xs"
+                      : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                  }`}
+                >
+                  Resend API (Cloud)
+                </button>
+              </div>
+            </div>
+
+            {/* Opcion SMTP */}
+            {(form.email_provider || "smtp") === "smtp" && (
+              <div className="space-y-4">
+                {/* Presets rapidos */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Preajustes rápidos:</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        smtp_host: "smtp.gmail.com",
+                        smtp_port: "465",
+                        smtp_secure: "true",
+                      })
+                    }
+                    className="px-3 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 hover:border-primary text-gray-700 dark:text-gray-300 transition-colors"
+                  >
+                    Google Gmail (465 SSL)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        smtp_host: "smtp.office365.com",
+                        smtp_port: "587",
+                        smtp_secure: "false",
+                      })
+                    }
+                    className="px-3 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 hover:border-primary text-gray-700 dark:text-gray-300 transition-colors"
+                  >
+                    Microsoft Outlook (587 TLS)
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Servidor Saliente (SMTP Host) *"
+                      value={form.smtp_host || ""}
+                      onChange={(e) => setForm({ ...form, smtp_host: e.target.value })}
+                      placeholder="Ej: smtp.gmail.com o smtp.office365.com"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      label="Puerto *"
+                      type="number"
+                      value={form.smtp_port || "465"}
+                      onChange={(e) => setForm({ ...form, smtp_port: e.target.value })}
+                      placeholder="465 o 587"
+                    />
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                        Seguridad
+                      </label>
+                      <select
+                        value={form.smtp_secure || "true"}
+                        onChange={(e) => setForm({ ...form, smtp_secure: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white"
+                      >
+                        <option value="true">SSL (465)</option>
+                        <option value="false">TLS / STARTTLS (587)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Usuario / Correo Electrónico Remitente *"
+                    type="email"
+                    value={form.smtp_user || ""}
+                    onChange={(e) => setForm({ ...form, smtp_user: e.target.value })}
+                    placeholder="Ej: casitadetareas.notificaciones@gmail.com"
+                  />
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                      Contraseña / Clave de Aplicación *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSmtpPass ? "text" : "password"}
+                        value={form.smtp_pass || ""}
+                        onChange={(e) => setForm({ ...form, smtp_pass: e.target.value })}
+                        placeholder="Contraseña o código de 16 caracteres"
+                        className="w-full px-4 py-2.5 pr-11 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPass(!showSmtpPass)}
+                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                        title={showSmtpPass ? "Ocultar" : "Mostrar"}
+                      >
+                        {showSmtpPass ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <Input
+                  label="Nombre y Dirección de Remitente Visible"
+                  value={form.smtp_from || ""}
+                  onChange={(e) => setForm({ ...form, smtp_from: e.target.value })}
+                  placeholder="Ej: Casita de Tareas <direccion@casitadetareas.com>"
+                />
+
+                {/* Google Workspace / Gmail App Password Help Box */}
+                <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 text-xs text-blue-900 dark:text-blue-200 space-y-1.5">
+                  <p className="font-bold flex items-center gap-1.5 text-blue-800 dark:text-blue-300">
+                    <SparklesIcon className="w-4 h-4 text-blue-600" />
+                    ¿Cómo usar una cuenta de Gmail de forma segura en 1 minuto?
+                  </p>
+                  <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-300/90 pl-1">
+                    <li>
+                      Ingresa a tu cuenta de Google en <span className="font-mono underline">myaccount.google.com/security</span> y activa la <strong>Verificación en dos pasos</strong>.
+                    </li>
+                    <li>
+                      En la barra de búsqueda superior de Google escribe <strong>&ldquo;Contraseñas de aplicaciones&rdquo;</strong> (o ve a <span className="font-mono underline">myaccount.google.com/apppasswords</span>).
+                    </li>
+                    <li>
+                      Crea una contraseña llamada <strong>&ldquo;Casita de Tareas&rdquo;</strong>. Google te mostrará un código de 16 letras (ej: <code>abcd efgh ijkl mnop</code>).
+                    </li>
+                    <li>
+                      Copia ese código de 16 letras y pégalo en el campo <strong>&ldquo;Contraseña / Clave de Aplicación&rdquo;</strong> de arriba. ¡Listo!
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {/* Opcion Resend */}
+            {form.email_provider === "resend" && (
+              <div className="space-y-4">
+                <Input
+                  label="Resend API Key *"
+                  value={form.resend_api_key || ""}
+                  onChange={(e) => setForm({ ...form, resend_api_key: e.target.value })}
+                  placeholder="Ej: re_1234567890abcdef..."
+                />
+                <Input
+                  label="Remitente de Resend (From)"
+                  value={form.resend_from || ""}
+                  onChange={(e) => setForm({ ...form, resend_from: e.target.value })}
+                  placeholder="Casita de Tareas <onboarding@resend.dev> o tu dominio verificado"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Si usas la clave gratuita de prueba de Resend con <code className="font-mono">onboarding@resend.dev</code>, solo podrás enviar pruebas al correo titular registrado en tu cuenta de Resend hasta verificar tu dominio.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Preferencias de Notificaciones Institucionales */}
+          <div className="p-6 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+              <BellIcon className="w-5 h-5 text-primary" />
+              <h4 className="font-bold text-base text-gray-900 dark:text-white">
+                2. Destinatarios y Políticas de Alertas Automáticas
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <Input
+                  label="Correo Electrónico de Dirección / Rectoría (Para Reportes y Alertas)"
+                  type="email"
+                  value={form.director_notification_email || ""}
+                  onChange={(e) => setForm({ ...form, director_notification_email: e.target.value })}
+                  placeholder="Ej: direccion@casitadetareas.com o rectoria@gmail.com"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  A esta dirección se enviará el Reporte Consolidado Diario a las 18:00 COT y las notificaciones de cierre de jornada.
+                </p>
+              </div>
+            </div>
+
+            {/* Checkboxes de automatización */}
+            <div className="space-y-3 pt-2">
+              <label className="flex items-start gap-3 p-3.5 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={form.notify_guardians_enabled !== "false"}
+                  onChange={(e) =>
+                    setForm({ ...form, notify_guardians_enabled: e.target.checked ? "true" : "false" })
+                  }
+                  className="mt-1 w-4 h-4 rounded text-primary focus:ring-primary/30"
+                />
+                <div className="flex-1 text-xs">
+                  <span className="font-bold text-gray-900 dark:text-white block text-sm">
+                    Alerta por Correo a Acudientes ante Inasistencia
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Envía de inmediato un correo oficial con el membrete de Casita de Tareas al padre, madre o acudiente registrado cuando el niño sea marcado ausente en la jornada.
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3.5 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={form.notify_admin_daily_report !== "false"}
+                  onChange={(e) =>
+                    setForm({ ...form, notify_admin_daily_report: e.target.checked ? "true" : "false" })
+                  }
+                  className="mt-1 w-4 h-4 rounded text-primary focus:ring-primary/30"
+                />
+                <div className="flex-1 text-xs">
+                  <span className="font-bold text-gray-900 dark:text-white block text-sm">
+                    Reporte Consolidado Diario a Dirección (18:00 COT)
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Genera y envía automáticamente el informe de cierre con la lista discriminada de niños y personal docente ausente al correo de rectoría.
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
+
           {/* Test Email Tool */}
-          <div className="p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 space-y-4">
+          <div className="p-6 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 space-y-4">
             <div className="flex items-center gap-2">
               <PaperAirplaneIcon className="w-5 h-5 text-primary" />
-              <h4 className="font-bold text-sm text-gray-900 dark:text-white">
-                Prueba en Vivo de Entrega de Correo
+              <h4 className="font-bold text-base text-gray-900 dark:text-white">
+                3. Prueba en Vivo de Entrega de Correo
               </h4>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Envía un correo de comprobación para verificar que el proveedor (Resend o SMTP) entrega satisfactoriamente en tu bandeja de entrada.
+              Envía un correo de comprobación para verificar que el proveedor configurado entrega satisfactoriamente en tu bandeja de entrada en tiempo real.
             </p>
 
             <form onSubmit={handleSendTestEmail} className="flex flex-col sm:flex-row gap-3">
@@ -1035,10 +1339,10 @@ export default function SettingsPage() {
 
             {testEmailResult && (
               <div
-                className={`p-3.5 rounded-xl text-xs font-semibold ${
+                className={`p-4 rounded-xl text-xs font-semibold ${
                   testEmailResult.success
-                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                    : "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800"
+                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                    : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800"
                 }`}
               >
                 {testEmailResult.success ? `✓ ${testEmailResult.message}` : `⚠ ${testEmailResult.error}`}
@@ -1049,81 +1353,68 @@ export default function SettingsPage() {
           {/* Automated Event Triggers Grid */}
           <div>
             <h4 className="font-bold text-sm text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-              <BellIcon className="w-4 h-4 text-purple-500" />
-              Flujos Automatizados Configurados en el Sistema
+              <SparklesIcon className="w-4 h-4 text-primary" />
+              Flujos Automatizados Configurados en Casita de Tareas
             </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-gray-900 dark:text-white">1. Solicitudes de Corrección</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">Inmediato</span>
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">1. Alerta a Acudientes</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400">
+                    Al Marcar Ausencia
+                  </span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Cada vez que un operador envía una solicitud de corrección de inasistencia, se envía una alerta a los administradores del sistema con los motivos y enlace de revisión.
+                  Notifica de inmediato al padre o acudiente con membrete institucional si el menor no asiste a la jornada asignada.
                 </p>
               </div>
 
               <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-gray-900 dark:text-white">2. Resolución de Corrección</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">Inmediato</span>
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">2. Reporte Diario Consolidado</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                    18:00 COT
+                  </span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Cuando la administración Aprueba o Rechaza una solicitud, el operador que la radicó recibe un correo formal con el concepto administrativo y la actualización de asistencia.
+                  Entrega a dirección el consolidado oficial con la relación de inasistencias de niños y docentes para seguimiento académico.
                 </p>
               </div>
 
               <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-gray-900 dark:text-white">3. Reporte Diario de Inasistencias</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">Cierre de Jornada</span>
+                  <span className="font-bold text-xs text-gray-900 dark:text-white">3. Auto-Cierre Horario</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                    16:30 / 17:50 COT
+                  </span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Consolida la lista completa de niños y miembros del personal que registraron ausencia, discriminando grupo y rol para control de gestión institucional.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-gray-900 dark:text-white">4. Auto-Cierre Horario</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">16:30 / 17:50</span>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Notifica al equipo directivo cuando el temporizador del sistema efectúa el marcaje masivo de ausencias al término del horario límite escolar y laboral.
+                  El cronómetro del servidor efectúa el cierre masivo de asistencia para quienes no registraron check-in en el horario pactado.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Vercel Environment Variables Guide */}
-          <div className="p-5 rounded-2xl bg-gray-50 dark:bg-[#0c1220] border border-gray-200 dark:border-gray-700 space-y-3">
-            <h4 className="font-bold text-xs text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-              Variables de Entorno para Vercel
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div className="p-3 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-1">
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">Opción 1: Resend (Recomendada)</span>
-                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
-                  Crea una cuenta gratuita en resend.com y agrega una sola variable en Vercel:
-                </p>
-                <code className="block p-2 bg-gray-100 dark:bg-gray-900 rounded font-mono text-[11px] text-gray-800 dark:text-gray-200">
-                  RESEND_API_KEY=re_123456...
-                </code>
-              </div>
-
-              <div className="p-3 rounded-xl bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 space-y-1">
-                <span className="font-bold text-blue-600 dark:text-blue-400">Opción 2: Servidor SMTP / Gmail</span>
-                <p className="text-gray-500 dark:text-gray-400 text-[11px]">
-                  Usa cualquier servidor de correo saliente SMTP agregando en Vercel:
-                </p>
-                <code className="block p-2 bg-gray-100 dark:bg-gray-900 rounded font-mono text-[10px] text-gray-800 dark:text-gray-200 leading-tight">
-                  SMTP_HOST=smtp.gmail.com<br />
-                  SMTP_PORT=465<br />
-                  SMTP_USER=tu-correo@gmail.com<br />
-                  SMTP_PASS=tu-contraseña-aplicacion
-                </code>
-              </div>
-            </div>
+          {/* Sticky Bottom Save Button */}
+          <div className="flex justify-end pt-4 border-t border-gray-100 dark:border-gray-800">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="px-6 py-3 gradient-primary text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+            >
+              {saving ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Guardando configuración...
+                </>
+              ) : (
+                <>
+                  <CheckCircleIcon className="w-5 h-5" />
+                  Guardar Configuración de Notificaciones
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}

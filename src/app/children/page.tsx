@@ -25,6 +25,7 @@ import {
   XCircleIcon,
   ClockIcon,
   SparklesIcon,
+  EnvelopeIcon,
 } from "@heroicons/react/24/outline";
 import type { Child, Group } from "@/types/database";
 
@@ -48,6 +49,7 @@ export default function ChildrenPage() {
     age: "",
     guardian_name: "",
     guardian_phone: "",
+    guardian_email: "",
     group_id: "",
     shift: "manana",
     enrollment_date: new Date().toISOString().split("T")[0],
@@ -112,6 +114,7 @@ export default function ChildrenPage() {
       age: child.age ? String(child.age) : "",
       guardian_name: child.guardian_name || "",
       guardian_phone: child.guardian_phone || "",
+      guardian_email: child.guardian_email || "",
       group_id: child.group_id || "",
       shift: child.shift || "manana",
       enrollment_date: child.enrollment_date || child.created_at?.slice(0, 10) || new Date().toISOString().split("T")[0],
@@ -154,6 +157,7 @@ export default function ChildrenPage() {
       document: form.document.trim() || null,
       guardian_name: form.guardian_name.trim() || null,
       guardian_phone: form.guardian_phone.trim() || null,
+      guardian_email: form.guardian_email.trim() || null,
       age: form.age ? Number(form.age) : 0,
       group_id: form.group_id || null,
       photo_url: form.photo_url || null,
@@ -479,6 +483,12 @@ export default function ChildrenPage() {
                       <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">
                         {child.guardian_name || "Sin acudiente registrado"}
                       </p>
+                      {child.guardian_email && (
+                        <p className="text-[11px] text-blue-600 dark:text-blue-400 font-medium truncate flex items-center gap-1">
+                          <EnvelopeIcon className="w-3 h-3 shrink-0" />
+                          {child.guardian_email}
+                        </p>
+                      )}
                     </div>
 
                     {child.observations && (
@@ -627,12 +637,24 @@ export default function ChildrenPage() {
                 placeholder="Ej: María Fernanda Moreno"
               />
               <Input
-                label="Teléfono / Celular de Contacto / WhatsApp"
+                label="Teléfono / Celular / WhatsApp"
                 type="tel"
                 value={form.guardian_phone}
                 onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
                 placeholder="Ej: 320 456 7890"
               />
+              <div className="sm:col-span-2">
+                <Input
+                  label="Correo Electrónico del Acudiente (Para Alertas de Inasistencia)"
+                  type="email"
+                  value={form.guardian_email}
+                  onChange={(e) => setForm({ ...form, guardian_email: e.target.value })}
+                  placeholder="Ej: acudiente@correo.com"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Se enviará automáticamente un correo formal al acudiente cuando el estudiante sea marcado ausente.
+                </p>
+              </div>
             </div>
           </div>
 

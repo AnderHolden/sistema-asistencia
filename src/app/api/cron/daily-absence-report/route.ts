@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isAuthorizedCron, getBogotaDate, isBogotaWeekend } from "@/lib/cron-auth";
-import { sendAbsenceReport } from "@/lib/email";
+import { sendAbsenceReport, resolveEmailConfig } from "@/lib/email";
 
 async function executeDailyAbsenceReport(req: NextRequest) {
   if (!isAuthorizedCron(req)) {
@@ -15,6 +15,14 @@ async function executeDailyAbsenceReport(req: NextRequest) {
     return NextResponse.json({
       skipped: true,
       reason: `Hoy es fin de semana en Colombia (${today}). Reporte diario omitido.`,
+    });
+  }
+
+  const emailConfig = await resolveEmailConfig();
+  if (!force && !emailConfig.notifyDailyReportEnabled) {
+    return NextResponse.json({
+      skipped: true,
+      reason: "El envío del reporte diario consolidado está desactivado en la configuración del sistema.",
     });
   }
 
@@ -44,7 +52,6 @@ async function executeDailyAbsenceReport(req: NextRequest) {
   const absentChildrenList: Array<{ name: string; code: string }> = [];
 
   if (childIds.length > 0) {
-    // Fetch child info
     const childrenDocs = await Promise.all(
       childIds.map((id) => adminDb.collection("children").doc(id).get())
     );
@@ -90,28 +97,42 @@ async function executeDailyAbsenceReport(req: NextRequest) {
     });
   }
 
-  // 3. Fetch admin emails
+  // 3. Fetch admin & director emails
   const adminSnap = await adminDb.collection("profiles").where("role", "==", "super_admin").get();
-  const adminEmails = adminSnap.docs.map((d) => d.data().email).filter(Boolean);
+  const recipientSet = new Set<string>();
 
-  if (adminEmails.length === 0) {
-    return NextResponse.json({
-      error: "No se encontraron administradores con correo registrado para recibir el reporte",
-      absentChildren: absentChildrenList.length,
-      absentStaff: absentStaffList.length,
-    }, { status: 400 });
+  adminSnap.docs.forEach((d) => {
+    const email = d.data().email;
+    if (email && email.includes("@")) recipientSet.add(email.trim().toLowerCase());
+  });
+
+  if (emailConfig.directorEmail && emailConfig.directorEmail.includes("@")) {
+    recipientSet.add(emailConfig.directorEmail.trim().toLowerCase());
+  }
+
+  const finalRecipients = Array.from(recipientSet);
+
+  if (finalRecipients.length === 0) {
+    return NextResponse.json(
+      {
+        error: "No se encontraron administradores ni correo de dirección registrado para recibir el reporte.",
+        absentChildren: absentChildrenList.length,
+        absentStaff: absentStaffList.length,
+      },
+      { status: 400 }
+    );
   }
 
   // 4. Send report
-  await sendAbsenceReport(adminEmails, today, absentChildrenList, absentStaffList);
+  await sendAbsenceReport(finalRecipients, today, absentChildrenList, absentStaffList);
 
   return NextResponse.json({
     success: true,
     date: today,
-    sentTo: adminEmails,
+    sentTo: finalRecipients,
     absentChildrenCount: absentChildrenList.length,
     absentStaffCount: absentStaffList.length,
-    message: `Reporte diario de ausencias enviado exitosamente a ${adminEmails.length} administradores.`,
+    message: `Reporte diario de ausencias enviado exitosamente a ${finalRecipients.length} destinatarios (${finalRecipients.join(", ")}).`,
   });
 }
 

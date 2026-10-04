@@ -147,6 +147,27 @@ export default function ChildrenAttendancePage() {
         check_in: checkInTime,
       });
       toast.success(status === "present" ? `${child.first_name} - Asistio (${formatTime(new Date().toISOString())})` : `${child.first_name} - No asistio`);
+
+      // Notify guardian if marked absent and guardian email exists
+      if (status === "absent" && child.guardian_email && child.guardian_email.includes("@")) {
+        fetch("/api/email/send-guardian-absence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            childId: child.id,
+            date,
+            reason: "Marcaje presencial en lista diaria de asistencia",
+          }),
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.sentCount > 0) {
+              toast.success(`Alerta de inasistencia enviada a ${child.guardian_email}`, { icon: "📧" });
+            }
+          })
+          .catch(() => {});
+      }
+
       loadData();
     } catch (err) { console.error("Error marking attendance:", err); toast.error("Error al marcar asistencia"); }
   }
@@ -169,6 +190,20 @@ export default function ChildrenAttendancePage() {
         note: editNote.trim(),
       });
       toast.success("Asistencia corregida");
+
+      // Notify guardian if changed to absent
+      if (editStatus === "absent" && editItem.child.guardian_email && editItem.child.guardian_email.includes("@")) {
+        fetch("/api/email/send-guardian-absence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            childId: editItem.child.id,
+            date,
+            reason: editNote.trim() || "Ajuste de asistencia",
+          }),
+        }).catch(() => {});
+      }
+
       setEditItem(null);
       loadData();
     } catch (err) { console.error("Error correcting attendance:", err); toast.error("Error al corregir asistencia"); }

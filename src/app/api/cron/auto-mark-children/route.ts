@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isAuthorizedCron, getBogotaDate, isBogotaWeekend } from "@/lib/cron-auth";
-import { sendAutoMarkNotification } from "@/lib/email";
+import { sendAutoMarkNotification, sendGuardianAbsenceAlert, resolveEmailConfig } from "@/lib/email";
 
 async function executeAutoMarkChildren(req: NextRequest) {
   if (!isAuthorizedCron(req)) {
@@ -40,7 +40,14 @@ async function executeAutoMarkChildren(req: NextRequest) {
 
   const markedChildIds = new Set(attendanceSnap.docs.map((d) => d.data().child_id));
 
-  const unmarkedChildren: Array<{ id: string; name: string; code: string }> = [];
+  const unmarkedChildren: Array<{
+    id: string;
+    name: string;
+    code: string;
+    guardianEmail?: string;
+    guardianName?: string;
+    shift?: string;
+  }> = [];
 
   childrenSnap.docs.forEach((d) => {
     if (!markedChildIds.has(d.id)) {
@@ -49,6 +56,9 @@ async function executeAutoMarkChildren(req: NextRequest) {
         id: d.id,
         name: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
         code: data.child_id_code || d.id.slice(0, 5),
+        guardianEmail: data.guardian_email,
+        guardianName: data.guardian_name,
+        shift: data.shift || "manana",
       });
     }
   });
@@ -109,11 +119,42 @@ async function executeAutoMarkChildren(req: NextRequest) {
     console.error("Error sending auto-mark children email notification:", emailErr);
   }
 
+  // 4. Notify guardians of absent children if enabled in system settings
+  let guardiansNotified = 0;
+  try {
+    const emailConfig = await resolveEmailConfig();
+    if (emailConfig.notifyGuardiansEnabled && emailConfig.provider !== "none") {
+      const childrenWithEmail = unmarkedChildren.filter(
+        (c) => c.guardianEmail && c.guardianEmail.includes("@")
+      );
+
+      for (const child of childrenWithEmail) {
+        try {
+          const res = await sendGuardianAbsenceAlert({
+            guardianName: child.guardianName,
+            guardianEmail: child.guardianEmail!,
+            childName: child.name,
+            childCode: child.code,
+            date: today,
+            shift: child.shift,
+            reason: "Marcaje automático por límite de horario institucional",
+          });
+          if (res.success) guardiansNotified++;
+        } catch (gErr) {
+          console.error(`Error notifying guardian for ${child.name}:`, gErr);
+        }
+      }
+    }
+  } catch (batchErr) {
+    console.error("Error dispatching guardian absence notifications in cron:", batchErr);
+  }
+
   return NextResponse.json({
     success: true,
     count: unmarkedChildren.length,
+    guardiansNotified,
     date: today,
-    message: `Se registraron ${unmarkedChildren.length} ausencias automáticas de niños a las 17:50 COT.`,
+    message: `Se registraron ${unmarkedChildren.length} ausencias automáticas de niños a las 17:50 COT. Se alertó a ${guardiansNotified} acudientes por correo.`,
   });
 }
 

@@ -42,6 +42,7 @@ export interface Child {
   document_type?: string;
   guardian_name?: string;
   guardian_phone?: string;
+  guardian_email?: string | null;
   date_of_birth: string;
   age: number;
   group_id: string | null;
