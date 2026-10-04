@@ -185,8 +185,8 @@ export default function DashboardPage() {
                   <Icon className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{card.value}</p>
-                  <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mt-1">{card.title}</p>
+                  <p className="text-3xl font-extrabold text-gray-900 dark:text-white leading-none">{card.value}</p>
+                  <p className="text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-400 mt-1.5">{card.title}</p>
                 </div>
               </div>
             </div>
@@ -196,16 +196,16 @@ export default function DashboardPage() {
 
       <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm animate-fade-in-up">
         <div className="flex items-center gap-3 mb-4">
-          <ArrowTrendingUpIcon className="w-5 h-5 text-primary" />
+          <ArrowTrendingUpIcon className="w-6 h-6 text-primary" />
           <div>
-            <h3 className="text-base font-bold text-gray-900 dark:text-white">Tasa de Asistencia del Mes</h3>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{stats.monthPresent} de {totalMonth} registros (ninos + personal)</p>
+            <h3 className="text-lg font-extrabold text-gray-900 dark:text-white">Tasa de Asistencia del Mes</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{stats.monthPresent} de {totalMonth} registros presenciales (niños + personal)</p>
           </div>
         </div>
-        <div className="w-full h-3 rounded-full bg-gray-100 dark:bg-gray-800">
+        <div className="w-full h-3.5 rounded-full bg-gray-100 dark:bg-gray-800">
           <div className="h-full rounded-full gradient-primary transition-all duration-1000 ease-out" style={{ width: `${attendanceRate}%` }} />
         </div>
-        <p className="text-right text-sm font-bold text-primary mt-2">{attendanceRate}%</p>
+        <p className="text-right text-base font-bold text-primary mt-2">{attendanceRate}%</p>
       </div>
 
       <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm animate-fade-in-up">

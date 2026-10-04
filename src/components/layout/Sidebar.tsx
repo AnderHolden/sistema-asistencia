@@ -109,9 +109,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   ];
 
   const linkClass = (active: boolean) =>
-    `flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+    `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 ${
       active
-        ? "bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200 shadow-sm border border-blue-200/60 dark:border-blue-800/60"
+        ? "bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200 shadow-sm border border-blue-200/70 dark:border-blue-800/70 font-bold"
         : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200"
     }`;
 
@@ -128,7 +128,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       <aside
         id="sidebar"
         aria-label="Menú de navegación"
-        className={`fixed left-0 top-0 z-50 flex h-screen w-[285px] flex-col bg-white dark:bg-[#141c2e] border-r border-gray-200/80 dark:border-gray-800 transition-transform duration-300 ease-out lg:translate-x-0 lg:static lg:z-auto ${
+        className={`fixed left-0 top-0 z-50 flex h-screen w-[295px] flex-col bg-white dark:bg-[#141c2e] border-r border-gray-200/80 dark:border-gray-800 transition-transform duration-300 ease-out lg:translate-x-0 lg:static lg:z-auto ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -137,7 +137,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <div className="flex items-center justify-between">
             <Link href="/dashboard" className="flex items-center gap-3 group" onClick={onClose}>
               {!logoError ? (
-                <div className="w-12 h-12 rounded-2xl bg-white p-1 border border-blue-200/80 shadow-sm flex items-center justify-center shrink-0 overflow-hidden">
+                <div className="w-13 h-13 rounded-2xl bg-white p-1 border border-blue-200/80 shadow-sm flex items-center justify-center shrink-0 overflow-hidden">
                   <img
                     src="/logo.png"
                     alt="Casita de Tareas"
@@ -146,15 +146,15 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   />
                 </div>
               ) : (
-                <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center shadow-md shrink-0">
+                <div className="w-13 h-13 rounded-2xl gradient-primary flex items-center justify-center shadow-md shrink-0">
                   <span className="text-2xl" role="img" aria-label="Casita">🏠</span>
                 </div>
               )}
               <div className="min-w-0">
-                <span className="block text-base font-extrabold text-blue-900 dark:text-blue-100 tracking-tight leading-tight group-hover:text-primary transition-colors">
+                <span className="block text-lg font-extrabold text-blue-900 dark:text-blue-100 tracking-tight leading-tight group-hover:text-primary transition-colors">
                   Casita de Tareas
                 </span>
-                <span className="block text-[11px] font-bold text-amber-600 dark:text-amber-400 truncate">
+                <span className="block text-xs font-bold text-amber-600 dark:text-amber-400 truncate mt-0.5">
                   La alegría del conocimiento
                 </span>
               </div>
@@ -167,9 +167,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <XMarkIcon className="w-5 h-5" />
             </button>
           </div>
-          <div className="mt-2.5 flex items-center gap-1.5 px-2.5 py-1 bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-900/40 rounded-lg">
-            <span className="text-xs" role="img" aria-label="Amor">❤️</span>
-            <span className="text-[10px] font-bold text-red-700 dark:text-red-300 truncate">
+          <div className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200/70 dark:border-red-900/40 rounded-xl">
+            <span className="text-sm" role="img" aria-label="Amor">❤️</span>
+            <span className="text-xs font-bold text-red-700 dark:text-red-300 truncate">
               Enseñando con amor
             </span>
           </div>
@@ -179,7 +179,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <nav className="flex-1 overflow-y-auto px-3.5 py-4 space-y-5" aria-label="Navegación principal">
           {sections.map((section) => (
             <div key={section.title} className="space-y-1">
-              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              <div className="px-3 text-xs font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                 {section.title}
               </div>
               <div className="space-y-0.5">
@@ -205,23 +205,23 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         {/* Perfil del Usuario y Cierre de Sesión */}
-        <div className="p-3.5 border-t border-gray-200/80 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40">
-          <div className="flex items-center gap-2.5 px-2 mb-2.5">
-            <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0">
+        <div className="p-4 border-t border-gray-200/80 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40">
+          <div className="flex items-center gap-3 px-2 mb-3">
+            <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center text-white text-sm font-bold shadow-sm shrink-0">
               {profile?.display_name?.charAt(0).toUpperCase() || "U"}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
+              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
                 {profile?.display_name || "Usuario"}
               </p>
-              <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 truncate">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
                 {profile?.role === "super_admin" ? "Super Administrador" : "Operador"}
               </p>
             </div>
           </div>
           <button
             onClick={signOut}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[12px] font-semibold text-gray-600 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-950/30 dark:hover:text-red-400 transition-all border border-gray-200/60 dark:border-gray-700/60"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-950/30 dark:hover:text-red-400 transition-all border border-gray-200/70 dark:border-gray-700/70"
           >
             <ArrowLeftOnRectangleIcon className="w-4 h-4" aria-hidden="true" />
             Cerrar sesión

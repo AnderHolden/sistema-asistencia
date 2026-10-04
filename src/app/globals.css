@@ -55,6 +55,7 @@ a:focus-visible {
 }
 
 html {
+  font-size: 16.5px;
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -64,6 +65,8 @@ body {
   font-family: var(--font-sans);
   background-color: #f8fafc;
   color: #1e293b;
+  font-size: 1rem;
+  line-height: 1.55;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }

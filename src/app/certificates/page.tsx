@@ -687,51 +687,51 @@ function CertificatesContent() {
         {/* Col 3: Resumen Ejecutivo en Vivo */}
         <div className="space-y-4">
           <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-3 flex items-center gap-2">
-              <CheckCircleIcon className="w-5 h-5 text-emerald-500" />
+            <h3 className="text-lg font-extrabold text-gray-900 dark:text-white border-b border-gray-100 dark:border-gray-800 pb-3 flex items-center gap-2">
+              <CheckCircleIcon className="w-6 h-6 text-emerald-500" />
               Resumen en Tiempo Real
             </h3>
 
             {/* Institution Badge with Logo */}
-            <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/60 flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-white p-1 border border-blue-200 shadow-xs flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/60 flex items-center gap-3">
+              <div className="w-13 h-13 rounded-xl bg-white p-1 border border-blue-200 shadow-xs flex items-center justify-center shrink-0 overflow-hidden">
                 <img src="/logo.png" alt="Casita de Tareas" className="w-full h-full object-contain" />
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-extrabold text-blue-900 dark:text-blue-200 truncate">
+                <div className="text-sm font-extrabold text-blue-900 dark:text-blue-200 truncate">
                   {institution?.institution_name || "Casita de Tareas"}
                 </div>
-                <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 truncate">
+                <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 truncate">
                   {institution?.slogan || "La Alegría del Conocimiento, Enseñando con Amor"}
                 </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">NIT: {institution?.nit}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">NIT: {institution?.nit}</p>
               </div>
             </div>
 
             {/* Metrics */}
             {activeCertType === "children" && (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+              <div className="space-y-2.5">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Estudiante:</span>
                   <span className="font-bold text-gray-900 dark:text-white">
                     {selectedChild ? `${selectedChild.first_name} ${selectedChild.last_name}` : "Ninguno"}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Días Asistidos:</span>
                   <span className="font-bold text-emerald-600 dark:text-emerald-400">
                     {calculating ? "..." : `${calculatedStats.presentDays} días`}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Inasistencias:</span>
                   <span className="font-bold text-red-500">
                     {calculating ? "..." : `${calculatedStats.absentDays} días`}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Cumplimiento:</span>
-                  <span className="font-bold text-primary">
+                  <span className="font-extrabold text-primary text-base">
                     {calculating ? "..." : `${calculatedStats.percentage}%`}
                   </span>
                 </div>
@@ -739,22 +739,22 @@ function CertificatesContent() {
             )}
 
             {activeCertType === "practitioners" && (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+              <div className="space-y-2.5">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Practicante:</span>
                   <span className="font-bold text-gray-900 dark:text-white">
                     {selectedPractitioner ? `${selectedPractitioner.first_name} ${selectedPractitioner.last_name}` : "Ninguno"}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Jornadas Asistidas:</span>
                   <span className="font-bold text-gray-900 dark:text-white">
                     {calculating ? "..." : `${calculatedStats.presentDays} días`}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Horas Certificadas:</span>
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-base">
                     {calculating ? "..." : `${calculatedStats.hours} HORAS`}
                   </span>
                 </div>
@@ -762,22 +762,22 @@ function CertificatesContent() {
             )}
 
             {activeCertType === "teachers" && (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+              <div className="space-y-2.5">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Docente:</span>
                   <span className="font-bold text-gray-900 dark:text-white">
                     {selectedTeacher ? `${selectedTeacher.first_name} ${selectedTeacher.last_name}` : "Ninguno"}
                   </span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Cargo:</span>
                   <span className="font-bold text-gray-900 dark:text-white">{customJobTitle}</span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Tipo de Contrato:</span>
                   <span className="font-bold text-gray-900 dark:text-white">{customContractType}</span>
                 </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Estado:</span>
                   <span className={`font-bold ${isCurrentlyWorking ? "text-emerald-600" : "text-gray-600"}`}>
                     {isCurrentlyWorking ? "Vinculación Activa" : "Finalizado"}
