@@ -354,10 +354,14 @@ export default function ChildrenAttendancePage() {
           <div
             key={item.child.id}
             id={`child-${item.child.id}`}
-            className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 border shadow-sm transition-all duration-500 ${
+            className={`rounded-2xl p-4 border shadow-sm transition-all duration-500 ${
               highlightChildId === item.child.id
-                ? "border-primary ring-4 ring-primary/20 opacity-100"
-                : item.existing ? "border-gray-100 dark:border-gray-800 opacity-75" : "border-gray-100 dark:border-gray-800"
+                ? "bg-white dark:bg-[#1a2438] border-primary ring-4 ring-primary/20 opacity-100"
+                : item.existing?.status === "present"
+                ? "bg-amber-50/40 dark:bg-[#1a2438] border-amber-300 dark:border-amber-700/60"
+                : item.existing?.status === "absent"
+                ? "bg-red-50/30 dark:bg-[#1a2438] border-red-200 dark:border-red-900/50"
+                : "bg-white dark:bg-[#1a2438] border-gray-100 dark:border-gray-800"
             }`}
           >
             <div className="flex items-center justify-between flex-wrap gap-3">
@@ -378,8 +382,24 @@ export default function ChildrenAttendancePage() {
               <div className="flex gap-2 items-center">
                 {item.existing ? (
                   <div className="flex items-center gap-2">
-                    <div className={`flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold ${item.existing.status === "present" ? "bg-emerald-500 text-white shadow-md" : "bg-red-500 text-white shadow-md"}`}>
-                      {item.existing.status === "present" ? <><CheckCircleIcon className="w-4 h-4" />Asistió</> : <><XCircleIcon className="w-4 h-4" />No asistió</>}
+                    <div
+                      className={`flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold shadow-md ${
+                        item.existing.status === "present"
+                          ? "bg-amber-400 text-amber-950 border border-amber-500 dark:bg-amber-500 dark:text-slate-950 dark:border-amber-400"
+                          : "bg-red-500 text-white"
+                      }`}
+                    >
+                      {item.existing.status === "present" ? (
+                        <>
+                          <CheckCircleIcon className="w-4 h-4" />
+                          Asistió · Registrado
+                        </>
+                      ) : (
+                        <>
+                          <XCircleIcon className="w-4 h-4" />
+                          No asistió
+                        </>
+                      )}
                     </div>
                     {(item.existing as AttendanceChild & { check_in?: string }).check_in && (
                       <span className="text-xs text-gray-400">{formatTime((item.existing as AttendanceChild & { check_in?: string }).check_in!)}</span>

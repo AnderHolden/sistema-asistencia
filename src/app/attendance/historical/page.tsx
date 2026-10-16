@@ -280,9 +280,15 @@ export default function HistoricalAttendancePage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {existing ? (
-                      <span className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold border-2 ${existing.status === "present" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20" : "border-red-500 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20"}`}>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold shadow-sm border ${
+                          existing.status === "present"
+                            ? "bg-amber-400 text-amber-950 border-amber-500 dark:bg-amber-500 dark:text-slate-950 dark:border-amber-400"
+                            : "border-red-500 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20"
+                        }`}
+                      >
                         {existing.status === "present" ? (
-                          <><CheckCircleIcon className="w-4 h-4" />Estado: Asistió</>
+                          <><CheckCircleIcon className="w-4 h-4" />Asistió · Registrado</>
                         ) : (
                           <><XCircleIcon className="w-4 h-4" />Estado: No asistió</>
                         )}
@@ -292,14 +298,16 @@ export default function HistoricalAttendancePage() {
                         Sin marcar
                       </span>
                     )}
-                    <button
-                      onClick={() => handleMark(child, "present")}
-                      disabled={savingChildId === child.id}
-                      className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-emerald-500 text-white shadow-md hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
-                    >
-                      <CheckCircleIcon className="w-4 h-4" />
-                      Marcar Asistió
-                    </button>
+                    {existing?.status !== "present" && (
+                      <button
+                        onClick={() => handleMark(child, "present")}
+                        disabled={savingChildId === child.id}
+                        className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-emerald-500 text-white shadow-md hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        <CheckCircleIcon className="w-4 h-4" />
+                        Marcar Asistió
+                      </button>
+                    )}
                     {existing?.status === "present" && (
                       <button
                         onClick={() => handleMark(child, "absent")}
