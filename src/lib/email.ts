@@ -35,7 +35,7 @@ async function getStoredSettings(): Promise<Record<string, string>> {
     });
     cachedSettings = { data: map, timestamp: Date.now() };
     return map;
-  } catch (err) {
+  } catch {
     // If Firebase Admin is not yet initialized or unreachable, gracefully return empty map
     return {};
   }

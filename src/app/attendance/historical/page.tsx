@@ -9,7 +9,7 @@ import { logAction } from "@/lib/audit";
 import { toast } from "react-hot-toast";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import Link from "next/link";
-import { getTodayDate } from "@/lib/utils";
+import { getTodayDate, isWeekday } from "@/lib/utils";
 import {
   CalendarDaysIcon,
   MagnifyingGlassIcon,
@@ -19,15 +19,16 @@ import {
   ClockIcon,
   UserGroupIcon,
 } from "@heroicons/react/24/outline";
-import type { Child, AttendanceChild } from "@/types/database";
+import type { Child, Group, AttendanceChild } from "@/types/database";
 
 export default function HistoricalAttendancePage() {
-  const { user, profile } = useAuth();
-  const isAdmin = profile?.role === "super_admin";
+  const { user } = useAuth();
 
   const [date, setDate] = useState(getTodayDate());
   const [search, setSearch] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("all");
   const [children, setChildren] = useState<Child[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [grouped, setGrouped] = useState<Record<string, AttendanceChild>>({});
   const [loading, setLoading] = useState(true);
   const [savingChildId, setSavingChildId] = useState<string | null>(null);
@@ -37,12 +38,17 @@ export default function HistoricalAttendancePage() {
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
-      setLoading(true);
-      const [childrenSnap, attSnap] = await Promise.all([
+      const [childrenSnap, groupsSnap, attSnap] = await Promise.all([
         getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
+        getDocs(collection(getFirebaseDb(), "groups")),
         getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", "==", date))),
       ]);
-      setChildren(childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child)).sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)));
+      setChildren(
+        childrenSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Child))
+          .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
+      );
+      setGroups(groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
       const map: Record<string, AttendanceChild> = {};
       attSnap.docs.forEach((d) => {
         const data = d.data();
@@ -62,14 +68,16 @@ export default function HistoricalAttendancePage() {
   }, [loadData]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return children;
-    const term = search.toLowerCase();
-    return children.filter((c) => {
-      const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
-      const code = c.child_id_code?.toLowerCase() || "";
-      return fullName.includes(term) || code.includes(term);
-    });
-  }, [children, search]);
+    return children
+      .filter((c) => selectedGroup === "all" || c.group_id === selectedGroup)
+      .filter((c) => {
+        if (!search.trim()) return true;
+        const term = search.toLowerCase();
+        const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
+        const code = c.child_id_code?.toLowerCase() || "";
+        return fullName.includes(term) || code.includes(term);
+      });
+  }, [children, selectedGroup, search]);
 
   async function handleMark(child: Child, status: "present" | "absent") {
     if (!user) return;
@@ -82,7 +90,7 @@ export default function HistoricalAttendancePage() {
         status,
         historical: true,
       });
-      toast.success(`${child.first_name} ${child.last_name} - ${status === "present" ? "Asistio" : "No asistio"} (${date})`);
+      toast.success(`${child.first_name} ${child.last_name} - ${status === "present" ? "Asistió" : "No asistió"} (${date})`);
       loadData();
     } catch (err) {
       console.error("Error marking historical attendance:", err);
@@ -96,10 +104,10 @@ export default function HistoricalAttendancePage() {
     if (!user) return;
     const unmarked = children.filter((c) => !grouped[c.id]);
     if (unmarked.length === 0) {
-      toast("No hay ninos sin marcar en esta fecha");
+      toast("No hay niños sin marcar en esta fecha");
       return;
     }
-    if (!confirm(`¿Marcar a los ${unmarked.length} ninos sin marcar como "No asistio"?`)) return;
+    if (!confirm(`¿Marcar a los ${unmarked.length} niños pendientes como "No asistió" en la fecha ${date}?`)) return;
     setBulkSaving(true);
     try {
       let count = 0;
@@ -112,7 +120,7 @@ export default function HistoricalAttendancePage() {
         action: "mark_all_absent",
         count,
       });
-      toast.success(`${count} ninos marcados como No asistio (${date})`);
+      toast.success(`${count} niños marcados como No asistió (${date})`);
       loadData();
     } catch (err) {
       console.error("Error marking all absent:", err);
@@ -123,6 +131,8 @@ export default function HistoricalAttendancePage() {
   }
 
   const unmarkedCount = useMemo(() => children.filter((c) => !grouped[c.id]).length, [children, grouped]);
+  const presentCount = useMemo(() => children.filter((c) => grouped[c.id]?.status === "present").length, [children, grouped]);
+  const absentCount = useMemo(() => children.filter((c) => grouped[c.id]?.status === "absent").length, [children, grouped]);
 
   if (loading && children.length === 0) return <LoadingSpinner label="Cargando..." />;
 
@@ -133,10 +143,30 @@ export default function HistoricalAttendancePage() {
           <CalendarDaysIcon className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia Historica</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia Histórica</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Registro manual de fechas anteriores a los ninos.
+            Registro y ajuste manual de fechas anteriores para los niños.
           </p>
+        </div>
+      </div>
+
+      {/* Tarjetas de resumen de la fecha seleccionada */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{children.length}</p>
+          <p className="text-xs font-medium text-gray-400">Total Niños</p>
+        </div>
+        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+          <p className="text-2xl font-bold text-amber-500">{unmarkedCount}</p>
+          <p className="text-xs font-medium text-gray-400">Sin marcar</p>
+        </div>
+        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+          <p className="text-2xl font-bold text-emerald-500">{presentCount}</p>
+          <p className="text-xs font-medium text-gray-400">Presentes</p>
+        </div>
+        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+          <p className="text-2xl font-bold text-red-500">{absentCount}</p>
+          <p className="text-xs font-medium text-gray-400">Ausentes</p>
         </div>
       </div>
 
@@ -148,12 +178,29 @@ export default function HistoricalAttendancePage() {
               type="date"
               value={date}
               max={getTodayDate()}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => {
+                setLoading(true);
+                setDate(e.target.value);
+              }}
               className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
             />
           </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-1">Grupo</label>
+            <select
+              value={selectedGroup}
+              onChange={(e) => setSelectedGroup(e.target.value)}
+              aria-label="Filtrar por grupo"
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+            >
+              <option value="all">Todos los grupos</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex-1 min-w-[220px]">
-            <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-1">Buscar nino</label>
+            <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-1">Buscar niño</label>
             <div className="relative">
               <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -161,7 +208,7 @@ export default function HistoricalAttendancePage() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nombre o codigo..."
+                placeholder="Buscar por nombre o código..."
                 className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
               />
             </div>
@@ -174,33 +221,35 @@ export default function HistoricalAttendancePage() {
             {bulkSaving ? (
               <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Marcando...</>
             ) : (
-              <><UserGroupIcon className="w-4 h-4" /> Marcar {unmarkedCount} sin marcar como No asistio</>
+              <><UserGroupIcon className="w-4 h-4" /> Cerrar {unmarkedCount} pendientes como No asistió</>
             )}
           </button>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 flex items-center gap-1">
           <ClockIcon className="w-3.5 h-3.5" />
-          Fecha seleccionada: <strong className="text-gray-700 dark:text-gray-300 ml-1">{date}</strong> · {filtered.length} ninos
+          Fecha seleccionada: <strong className="text-gray-700 dark:text-gray-300 ml-1">{date}</strong> · {filtered.length} niños mostrados
+          {!isWeekday(date) && <span className="ml-2 px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold">Fin de semana</span>}
         </p>
       </div>
 
       {search.trim() && filtered.length === 0 ? (
         <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-10 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
           <MagnifyingGlassIcon className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-          <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">No se encontro: &quot;{search}&quot;</p>
-          <p className="text-sm text-gray-400 mb-4">El nino no esta registrado en el sistema.</p>
+          <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">No se encontró: &quot;{search}&quot;</p>
+          <p className="text-sm text-gray-400 mb-4">El niño no está registrado en el sistema o no pertenece al grupo filtrado.</p>
           <Link
             href="/children"
             className="inline-flex items-center gap-2 px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-[0.97]"
           >
             <UserPlusIcon className="w-5 h-5" />
-            Registrar nuevo nino
+            Registrar nuevo niño
           </Link>
         </div>
       ) : (
         <div className="space-y-2">
           {filtered.map((child) => {
             const existing = grouped[child.id];
+            const groupName = groups.find((g) => g.id === child.group_id)?.name;
             return (
               <div
                 key={child.id}
@@ -225,7 +274,7 @@ export default function HistoricalAttendancePage() {
                       </div>
                       <p className="text-[11px] text-gray-400">
                         {child.shift}
-                        {child.group_id ? ` · ${child.group_id}` : ""}
+                        {groupName ? ` · ${groupName}` : ""}
                       </p>
                     </div>
                   </div>
@@ -233,9 +282,9 @@ export default function HistoricalAttendancePage() {
                     {existing ? (
                       <span className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold border-2 ${existing.status === "present" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20" : "border-red-500 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20"}`}>
                         {existing.status === "present" ? (
-                          <><CheckCircleIcon className="w-4 h-4" />Estado: Asistio</>
+                          <><CheckCircleIcon className="w-4 h-4" />Estado: Asistió</>
                         ) : (
-                          <><XCircleIcon className="w-4 h-4" />Estado: No asistio</>
+                          <><XCircleIcon className="w-4 h-4" />Estado: No asistió</>
                         )}
                       </span>
                     ) : (
@@ -249,16 +298,18 @@ export default function HistoricalAttendancePage() {
                       className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-emerald-500 text-white shadow-md hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
                     >
                       <CheckCircleIcon className="w-4 h-4" />
-                      Marcar Asistio
+                      Marcar Asistió
                     </button>
-                    <button
-                      onClick={() => handleMark(child, "absent")}
-                      disabled={savingChildId === child.id}
-                      className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-red-500 text-white shadow-md hover:bg-red-600 transition-all active:scale-95 disabled:opacity-50"
-                    >
-                      <XCircleIcon className="w-4 h-4" />
-                      Marcar No asistio
-                    </button>
+                    {existing?.status === "present" && (
+                      <button
+                        onClick={() => handleMark(child, "absent")}
+                        disabled={savingChildId === child.id}
+                        className="flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-sm font-bold bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        <XCircleIcon className="w-4 h-4" />
+                        Cambiar a No asistió
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

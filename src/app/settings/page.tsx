@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import { Input } from "@/components/ui/Input";
@@ -9,7 +9,6 @@ import { exportToExcel } from "@/lib/export";
 import { toast } from "react-hot-toast";
 import { logAction } from "@/lib/audit";
 import {
-  Cog6ToothIcon,
   BuildingOffice2Icon,
   ClockIcon,
   CalendarDaysIcon,
@@ -21,7 +20,6 @@ import {
   PlusIcon,
   TrashIcon,
   CheckCircleIcon,
-  PencilIcon,
   EnvelopeIcon,
   BellIcon,
   PaperAirplaneIcon,
@@ -29,7 +27,6 @@ import {
   SparklesIcon,
   EyeIcon,
   EyeSlashIcon,
-  KeyIcon,
   ServerIcon,
 } from "@heroicons/react/24/outline";
 import type { Child, Group, Teacher, Practitioner } from "@/types/database";
@@ -85,7 +82,6 @@ export default function SettingsPage() {
   const [downloadGroup, setDownloadGroup] = useState("all");
   const [downloading, setDownloading] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
-  const restoreInputRef = useRef<HTMLInputElement>(null);
 
   // Digital Signature Canvas
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -97,11 +93,6 @@ export default function SettingsPage() {
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayName, setNewHolidayName] = useState("");
 
-  // Audit export
-  const [auditExportLoading, setAuditExportLoading] = useState(false);
-  const [auditDateFrom, setAuditDateFrom] = useState("");
-  const [auditDateTo, setAuditDateTo] = useState("");
-
   // Email & Notifications Status & Test
   const [emailStatus, setEmailStatus] = useState<{ configured: boolean; provider: "resend" | "smtp" | "none"; from: string } | null>(null);
   const [loadingEmailStatus, setLoadingEmailStatus] = useState(false);
@@ -109,13 +100,7 @@ export default function SettingsPage() {
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
-  useEffect(() => {
-    loadSettings();
-    loadHolidays();
-    checkEmailStatus();
-  }, []);
-
-  async function checkEmailStatus() {
+  const checkEmailStatus = useCallback(async () => {
     setLoadingEmailStatus(true);
     try {
       const res = await fetch("/api/email/test");
@@ -128,7 +113,51 @@ export default function SettingsPage() {
     } finally {
       setLoadingEmailStatus(false);
     }
-  }
+  }, []);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const [settingsSnap, groupsSnap] = await Promise.all([
+        getDocs(query(collection(getFirebaseDb(), "system_settings"), orderBy("setting_key"))),
+        getDocs(query(collection(getFirebaseDb(), "groups"), orderBy("name"))),
+      ]);
+      const data = settingsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Setting));
+      setSettings(data);
+      setGroups(groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
+
+      setForm((prev) => {
+        const formMap: Record<string, string> = { ...prev };
+        data.forEach((s) => {
+          if (s.setting_value) {
+            formMap[s.setting_key] = s.setting_value;
+          }
+        });
+        if (formMap.signature_url) {
+          setHasSignature(true);
+        }
+        return formMap;
+      });
+    } catch (err) {
+      console.error("Error loading settings:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadHolidays = useCallback(async () => {
+    try {
+      const snap = await getDocs(query(collection(getFirebaseDb(), "holidays"), orderBy("date")));
+      setHolidays(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Holiday)));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSettings();
+    loadHolidays();
+    checkEmailStatus();
+  }, [loadSettings, loadHolidays, checkEmailStatus]);
 
   async function handleSendTestEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -213,33 +242,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function loadSettings() {
-    try {
-      const [settingsSnap, groupsSnap] = await Promise.all([
-        getDocs(query(collection(getFirebaseDb(), "system_settings"), orderBy("setting_key"))),
-        getDocs(query(collection(getFirebaseDb(), "groups"), orderBy("name"))),
-      ]);
-      const data = settingsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Setting));
-      setSettings(data);
-      setGroups(groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
-
-      const formMap: Record<string, string> = { ...form };
-      data.forEach((s) => {
-        if (s.setting_value) {
-          formMap[s.setting_key] = s.setting_value;
-        }
-      });
-      setForm(formMap);
-      if (formMap.signature_url) {
-        setHasSignature(true);
-      }
-    } catch (err) {
-      console.error("Error loading settings:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function handleSave() {
     setSaving(true);
     try {
@@ -317,15 +319,6 @@ export default function SettingsPage() {
   }
 
   // Holidays
-  async function loadHolidays() {
-    try {
-      const snap = await getDocs(query(collection(getFirebaseDb(), "holidays"), orderBy("date")));
-      setHolidays(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Holiday)));
-    } catch {
-      /* ignore */
-    }
-  }
-
   async function addHoliday() {
     if (!newHolidayDate || !newHolidayName.trim()) {
       toast.error("Fecha y nombre del festivo son obligatorios");
@@ -463,7 +456,7 @@ export default function SettingsPage() {
       a.download = `backup_casita_tareas_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       toast.success("Copia de seguridad completa descargada exitosamente");
-    } catch (err) {
+    } catch {
       toast.error("Error al generar copia de seguridad");
     }
     setBackupLoading(false);

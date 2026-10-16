@@ -20,21 +20,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        document.cookie = "auth-session=true; path=/; max-age=2592000; SameSite=Lax";
-        await loadProfile(firebaseUser.uid);
-      } else {
-        document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
-        setProfile(null);
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
   async function loadProfile(uid: string) {
     try {
       console.log("[Auth] Loading profile for:", uid);
@@ -83,6 +68,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
     }
   }
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        document.cookie = "auth-session=true; path=/; max-age=2592000; SameSite=Lax";
+        await loadProfile(firebaseUser.uid);
+      } else {
+        document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+        setProfile(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   function signOut() {
     document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";

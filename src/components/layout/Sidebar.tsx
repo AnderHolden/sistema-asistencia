@@ -19,7 +19,6 @@ import {
   XMarkIcon,
   ArrowPathIcon,
   CalendarDaysIcon,
-  SparklesIcon,
   BookOpenIcon,
   ClockIcon,
 } from "@heroicons/react/24/outline";

@@ -7,8 +7,18 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { ShieldCheckIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import type { AuditLog } from "@/types/database";
 
-const actionLabels: Record<string, string> = { create: "Creo", update: "Actualizo", delete: "Elimino" };
-const entityLabels: Record<string, string> = { children: "Nino", groups: "Grupo", teachers: "Profesor", practitioners: "Practicante", attendance_children: "Asistencia Infantil", attendance_staff: "Asistencia Personal", profiles: "Usuario" };
+const actionLabels: Record<string, string> = { create: "Creó", update: "Actualizó", delete: "Eliminó" };
+const entityLabels: Record<string, string> = {
+  children: "Niño",
+  groups: "Grupo",
+  teachers: "Profesor",
+  practitioners: "Practicante",
+  attendance_children: "Asistencia Infantil",
+  attendance_staff: "Asistencia Personal",
+  profiles: "Usuario",
+  correction_requests: "Corrección Personal",
+  correction_requests_children: "Corrección Infantil",
+};
 
 function getDetailText(log: AuditLog): string {
   const d = log.details as Record<string, unknown> | null;
@@ -16,13 +26,23 @@ function getDetailText(log: AuditLog): string {
   if (log.entity_type === "attendance_staff" && d.signed) {
     const name = d.staff_name || "Personal";
     const type = d.staff_type === "teacher" ? "Profesor" : d.staff_type === "practitioner" ? "Practicante" : "Personal";
-    return `${type} ${name} firmo asistencia`;
+    return `${type} ${name} firmó asistencia`;
   }
-  if (log.entity_type === "attendance_children" && d.count) {
-    return `${d.count} asistencia(s) registrada(s)`;
+  if (log.entity_type === "attendance_children") {
+    if (d.count) return `${d.count} asistencia(s) registrada(s)`;
+    if (d.status) {
+      const statusText = d.status === "present" ? "Asistió" : "No asistió";
+      return `Marcado individual: ${statusText}${d.date ? ` (${d.date})` : ""}`;
+    }
   }
   if (log.entity_type === "profiles" && d.email) {
     return `Usuario: ${d.email} (${d.role === "super_admin" ? "Super Admin" : "Operador"})`;
+  }
+  if (d.full_name) {
+    return `${d.full_name}${d.id_code ? ` (${d.id_code})` : ""}`;
+  }
+  if (d.name) {
+    return String(d.name);
   }
   return "";
 }
@@ -32,12 +52,22 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
 
-  useEffect(() => { loadLogs(); }, []);
-
-  async function loadLogs() {
-    try { setLogs(await getAuditLogs()); } catch { /* permission denied */ }
-    setLoading(false);
-  }
+  useEffect(() => {
+    let active = true;
+    getAuditLogs()
+      .then((data) => {
+        if (active) setLogs(data);
+      })
+      .catch(() => {
+        /* permission denied */
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filtered = logs.filter((l) => l.user_email.toLowerCase().includes(filter.toLowerCase()) || l.action.toLowerCase().includes(filter.toLowerCase()) || l.entity_type.toLowerCase().includes(filter.toLowerCase()));
 

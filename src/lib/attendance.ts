@@ -1,9 +1,8 @@
 import {
-  collection, query, where, getDocs, addDoc, updateDoc, doc, deleteDoc,
-  orderBy, writeBatch
+  collection, query, where, getDocs, addDoc, updateDoc, doc, writeBatch
 } from "firebase/firestore";
 import { getFirebaseDb } from "./firebase";
-import type { AttendanceChild, AttendanceStaff } from "@/types/database";
+import type { AttendanceStaff } from "@/types/database";
 import { getTodayDate } from "./utils";
 
 export async function registerSingleChildAttendance(

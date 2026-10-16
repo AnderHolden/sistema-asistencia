@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendTestEmail, getEmailProviderInfo } from "@/lib/email";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const info = await getEmailProviderInfo();
     return NextResponse.json(info);

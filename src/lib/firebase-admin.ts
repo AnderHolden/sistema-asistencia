@@ -18,13 +18,13 @@ export function getFirebaseServiceAccount(): ServiceAccountCredentials | null {
   const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (saRaw && saRaw.trim() && saRaw.trim() !== "{}") {
     try {
-      let parsed: any;
+      let parsed: ServiceAccountCredentials;
       try {
-        parsed = JSON.parse(saRaw);
+        parsed = JSON.parse(saRaw) as ServiceAccountCredentials;
       } catch {
         // Fallback: parse as Base64 encoded JSON (recommended for Vercel env vars)
         const decoded = Buffer.from(saRaw, "base64").toString("utf8");
-        parsed = JSON.parse(decoded);
+        parsed = JSON.parse(decoded) as ServiceAccountCredentials;
       }
 
       if (parsed.private_key) {

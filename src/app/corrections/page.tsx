@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getPendingCorrections,
   getAllStaffCorrections,
@@ -18,9 +18,8 @@ import {
   ArrowPathIcon,
   UserGroupIcon,
   UserIcon,
-  ClockIcon,
-  ArrowTopRightOnSquareIcon,
   CheckBadgeIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "react-hot-toast";
 import { formatDateTime } from "@/lib/utils";
@@ -32,15 +31,12 @@ export default function CorrectionsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"staff" | "children">("children");
   const [viewFilter, setViewFilter] = useState<"pending" | "resolved" | "all">("pending");
+  const [search, setSearch] = useState("");
   const [rejectNote, setRejectNote] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [viewFilter]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       if (viewFilter === "pending") {
@@ -69,7 +65,11 @@ export default function CorrectionsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [viewFilter]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   async function handleApproveStaff(
     req: CorrectionRequest,
@@ -219,8 +219,29 @@ export default function CorrectionsPage() {
     }
   }
 
-  const currentRequestsCount = activeTab === "children" ? childRequests.length : staffRequests.length;
   const pendingCountTotal = childRequests.filter((c) => c.status === "pending").length + staffRequests.filter((s) => s.status === "pending").length;
+
+  const q = search.trim().toLowerCase();
+  const filteredChildRequests = q
+    ? childRequests.filter(
+        (c) =>
+          c.child_name.toLowerCase().includes(q) ||
+          (c.child_id_code || "").toLowerCase().includes(q) ||
+          c.attendance_date.includes(q) ||
+          c.requested_by_email.toLowerCase().includes(q) ||
+          c.reason.toLowerCase().includes(q)
+      )
+    : childRequests;
+
+  const filteredStaffRequests = q
+    ? staffRequests.filter(
+        (s) =>
+          s.staff_name.toLowerCase().includes(q) ||
+          s.attendance_date.includes(q) ||
+          s.requested_by_email.toLowerCase().includes(q) ||
+          s.reason.toLowerCase().includes(q)
+      )
+    : staffRequests;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -230,9 +251,16 @@ export default function CorrectionsPage() {
             <ArrowPathIcon className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
-              Solicitudes de Corrección
-            </h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
+                Solicitudes de Corrección
+              </h1>
+              {pendingCountTotal > 0 && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                  {pendingCountTotal} pendiente{pendingCountTotal === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Gestión y aprobación directa de modificaciones de asistencia
             </p>
@@ -274,30 +302,43 @@ export default function CorrectionsPage() {
         </div>
       </div>
 
-      {/* Tabs: Niños vs Personal */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setActiveTab("children")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            activeTab === "children"
-              ? "gradient-primary text-white shadow-md"
-              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
-          }`}
-        >
-          <UserGroupIcon className="w-4 h-4" />
-          Niños ({childRequests.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("staff")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            activeTab === "staff"
-              ? "gradient-primary text-white shadow-md"
-              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
-          }`}
-        >
-          <UserIcon className="w-4 h-4" />
-          Personal ({staffRequests.length})
-        </button>
+      {/* Tabs: Niños vs Personal + Search */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab("children")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              activeTab === "children"
+                ? "gradient-primary text-white shadow-md"
+                : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+            }`}
+          >
+            <UserGroupIcon className="w-4 h-4" />
+            Niños ({filteredChildRequests.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("staff")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              activeTab === "staff"
+                ? "gradient-primary text-white shadow-md"
+                : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+            }`}
+          >
+            <UserIcon className="w-4 h-4" />
+            Personal ({filteredStaffRequests.length})
+          </button>
+        </div>
+
+        <div className="relative w-full sm:w-72">
+          <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, código, fecha..."
+            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a2438] text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
       </div>
 
       {loading ? (
@@ -306,9 +347,9 @@ export default function CorrectionsPage() {
         <>
           {/* TAB: NIÑOS */}
           {activeTab === "children" && (
-            childRequests.length > 0 ? (
+            filteredChildRequests.length > 0 ? (
               <div className="space-y-4">
-                {childRequests.map((req) => {
+                {filteredChildRequests.map((req) => {
                   const targetStatus = req.new_status || (req.old_status === "present" ? "absent" : "present");
                   const isPending = req.status === "pending";
 
@@ -468,9 +509,9 @@ export default function CorrectionsPage() {
 
           {/* TAB: PERSONAL */}
           {activeTab === "staff" && (
-            staffRequests.length > 0 ? (
+            filteredStaffRequests.length > 0 ? (
               <div className="space-y-4">
-                {staffRequests.map((req) => {
+                {filteredStaffRequests.map((req) => {
                   const isPending = req.status === "pending";
 
                   return (
@@ -507,6 +548,15 @@ export default function CorrectionsPage() {
                           <h3 className="text-base font-bold text-gray-900 dark:text-white">
                             {req.staff_name}
                           </h3>
+
+                          <div className="flex items-center gap-2 mt-2 text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">Acción solicitada por el operador:</span>
+                            <span className="font-bold px-2.5 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                              {req.action_requested === "mark_present"
+                                ? "Marcar Presente Directo"
+                                : "Habilitar Firma Digital"}
+                            </span>
+                          </div>
 
                           {/* Motivo */}
                           <div className="bg-gray-50 dark:bg-[#0c1220] p-3 rounded-xl mt-3 border border-gray-100 dark:border-gray-800">

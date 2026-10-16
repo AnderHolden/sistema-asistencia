@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { getPendingCorrections, getPendingChildCorrections, getMyChildCorrections } from "@/lib/corrections";
+import {
+  getPendingCorrections,
+  getPendingChildCorrections,
+  getMyChildCorrections,
+  getMyStaffCorrections,
+} from "@/lib/corrections";
 import { BellIcon } from "@heroicons/react/24/outline";
-import { formatDateTime } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { formatDateTime, cn } from "@/lib/utils";
 
 interface NotificationBellProps {
   onNavigate?: (path: string) => void;
@@ -19,23 +23,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
   const [notifications, setNotifications] = useState<Array<{ id: string; title: string; detail: string; time: string; type: "staff" | "child"; status: string }>>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
-    return () => clearInterval(interval);
-  }, [user, isAdmin]);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  async function loadNotifications() {
+  const loadNotifications = useCallback(async () => {
     if (!user) return;
     try {
       if (isAdmin) {
@@ -54,7 +42,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
           })),
           ...childPending.map((r) => ({
             id: r.id,
-            title: `Solicitud nino: ${r.child_name} (${r.child_id_code})`,
+            title: `Solicitud niño: ${r.child_name} (${r.child_id_code})`,
             detail: r.reason,
             time: r.created_at,
             type: "child" as const,
@@ -65,24 +53,63 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
         setNotifications(notifs);
         setCount(staffPending.length + childPending.length);
       } else {
-        const myRequests = await getMyChildCorrections(user.uid);
-        const resolved = myRequests.filter((r) => r.status === "approved" || r.status === "rejected");
-        const notifs = resolved.map((r) => ({
-          id: r.id,
-          title: r.status === "approved" ? `Aprobada: ${r.child_name}` : `Rechazada: ${r.child_name}`,
-          detail: r.admin_note || (r.status === "approved" ? "Se elimino el registro. Puede volver a marcar." : `Motivo: ${r.admin_note || "Sin observacion"}`),
-          time: r.resolved_at || r.created_at,
-          type: "child" as const,
-          status: r.status,
-        }));
+        const [myChildRequests, myStaffRequests] = await Promise.all([
+          getMyChildCorrections(user.uid),
+          getMyStaffCorrections(user.uid),
+        ]);
+        const resolvedChildren = myChildRequests
+          .filter((r) => r.status === "approved" || r.status === "rejected")
+          .map((r) => ({
+            id: r.id,
+            title: r.status === "approved" ? `Aprobada: ${r.child_name}` : `Rechazada: ${r.child_name}`,
+            detail:
+              r.admin_note ||
+              (r.status === "approved"
+                ? "Corrección aplicada al registro de asistencia."
+                : "Solicitud rechazada"),
+            time: r.resolved_at || r.created_at,
+            type: "child" as const,
+            status: r.status,
+          }));
+        const resolvedStaff = myStaffRequests
+          .filter((r) => r.status === "approved" || r.status === "rejected")
+          .map((r) => ({
+            id: r.id,
+            title: r.status === "approved" ? `Aprobada: ${r.staff_name}` : `Rechazada: ${r.staff_name}`,
+            detail:
+              r.admin_note ||
+              (r.status === "approved"
+                ? "Corrección de personal aplicada."
+                : "Solicitud rechazada"),
+            time: r.resolved_at || r.created_at,
+            type: "staff" as const,
+            status: r.status,
+          }));
+        const notifs = [...resolvedChildren, ...resolvedStaff];
         notifs.sort((a, b) => b.time.localeCompare(a.time));
         setNotifications(notifs.slice(0, 10));
-        setCount(resolved.length);
+        setCount(notifs.length);
       }
     } catch (e) {
       console.error("Error loading notifications:", e);
     }
-  }
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -119,7 +146,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
                   onClick={() => {
                     setIsOpen(false);
                     if (onNavigate) {
-                      onNavigate(isAdmin ? "/corrections" : "/attendance/children");
+                      onNavigate(isAdmin ? "/corrections" : n.type === "staff" ? "/attendance/staff" : "/attendance/children");
                     }
                   }}
                   className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
@@ -12,7 +12,6 @@ import {
   CheckCircleIcon, 
   XCircleIcon, 
   ArrowTrendingUpIcon,
-  SparklesIcon,
   ClipboardDocumentCheckIcon,
   ClockIcon,
   DocumentCheckIcon
@@ -44,12 +43,7 @@ export default function DashboardPage() {
   const [monthly, setMonthly] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!authLoading && !user) return;
-    if (user) loadDashboard();
-  }, [user, authLoading]);
-
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     const now = new Date();
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const start = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, "0")}-01`;
@@ -99,7 +93,12 @@ export default function DashboardPage() {
     }
     setMonthly(monthlyData);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && !user) return;
+    if (user) loadDashboard();
+  }, [user, authLoading, loadDashboard]);
 
   if (loading || authLoading) return <LoadingSpinner label="Cargando dashboard..." />;
 

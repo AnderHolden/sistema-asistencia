@@ -109,11 +109,15 @@ function getFormalDateSentence(city: string): string {
   return `Para constancia de lo anterior, se expide el presente documento en ${city}, a los ${day} días del mes de ${month} de ${year}.`;
 }
 
+type JsPDFDoc = InstanceType<typeof import("jspdf").default> & {
+  lastAutoTable?: { finalY?: number };
+};
+
 // -----------------------------------------------------------------------------
 // DIBUJADO DE MEMBRETE OFICIAL (LOGO + COLORES DE MARCA + DATOS INSTITUCIONALES)
 // -----------------------------------------------------------------------------
 function drawOfficialHeader(
-  doc: any,
+  doc: JsPDFDoc,
   inst: InstitutionProfile,
   logoBase64: string | null,
   code: string,
@@ -231,7 +235,7 @@ function drawOfficialHeader(
   return 94; // Retorna la posición Y donde comienza el cuerpo del texto
 }
 
-function drawFallbackLogo(doc: any, x: number, y: number, size: number) {
+function drawFallbackLogo(doc: JsPDFDoc, x: number, y: number, size: number) {
   doc.setFillColor(30, 64, 175);
   doc.roundedRect(x, y, size, size, 3, 3, "F");
   doc.setFont("helvetica", "bold");
@@ -244,7 +248,7 @@ function drawFallbackLogo(doc: any, x: number, y: number, size: number) {
 // -----------------------------------------------------------------------------
 // DIBUJADO DE PIE DE PÁGINA OFICIAL (FIRMA + SELLO DIGITAL + AVISO LEGAL)
 // -----------------------------------------------------------------------------
-function drawOfficialFooter(doc: any, inst: InstitutionProfile, code: string) {
+function drawOfficialFooter(doc: JsPDFDoc, inst: InstitutionProfile, code: string) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 18;
@@ -339,7 +343,7 @@ export interface ChildCertParams {
 
 export async function generateChildAttendanceCertificate(params: ChildCertParams, action: "save" | "blob" = "save") {
   const { jsPDF, autoTable } = await getPdfLibs();
-  const doc = new jsPDF({ format: "a4", unit: "mm" });
+  const doc: JsPDFDoc = new jsPDF({ format: "a4", unit: "mm" });
   const inst = params.institution || DEFAULT_INSTITUTION;
   const logoBase64 = await getLogoBase64();
 
@@ -419,7 +423,7 @@ export async function generateChildAttendanceCertificate(params: ChildCertParams
     styles: { lineColor: [203, 213, 225], lineWidth: 0.3 },
   });
 
-  const finalTableY = (doc as any).lastAutoTable.finalY || tableY + 22;
+  const finalTableY = doc.lastAutoTable?.finalY || tableY + 22;
 
   // Propósito / Destino
   const purposeText = params.purpose && params.purpose.trim()
@@ -466,7 +470,7 @@ export interface PractitionerCertParams {
 
 export async function generatePractitionerCertificate(params: PractitionerCertParams, action: "save" | "blob" = "save") {
   const { jsPDF, autoTable } = await getPdfLibs();
-  const doc = new jsPDF({ format: "a4", unit: "mm" });
+  const doc: JsPDFDoc = new jsPDF({ format: "a4", unit: "mm" });
   const inst = params.institution || DEFAULT_INSTITUTION;
   const logoBase64 = await getLogoBase64();
 
@@ -552,7 +556,7 @@ export async function generatePractitionerCertificate(params: PractitionerCertPa
     styles: { lineColor: [203, 213, 225], lineWidth: 0.3 },
   });
 
-  const finalTableY = (doc as any).lastAutoTable.finalY || tableY + 22;
+  const finalTableY = doc.lastAutoTable?.finalY || tableY + 22;
 
   // Frase Formal de Expedición
   const issuanceSentence = getFormalDateSentence(inst.city);
@@ -589,7 +593,7 @@ export interface TeacherCertParams {
 
 export async function generateTeacherLaborCertificate(params: TeacherCertParams, action: "save" | "blob" = "save") {
   const { jsPDF, autoTable } = await getPdfLibs();
-  const doc = new jsPDF({ format: "a4", unit: "mm" });
+  const doc: JsPDFDoc = new jsPDF({ format: "a4", unit: "mm" });
   const inst = params.institution || DEFAULT_INSTITUTION;
   const logoBase64 = await getLogoBase64();
 
@@ -682,7 +686,7 @@ export async function generateTeacherLaborCertificate(params: TeacherCertParams,
     styles: { lineColor: [203, 213, 225], lineWidth: 0.3 },
   });
 
-  const finalTableY = (doc as any).lastAutoTable.finalY || currentY + 22;
+  const finalTableY = doc.lastAutoTable?.finalY || currentY + 22;
 
   // Propósito / Destino
   const purposeText = params.purpose && params.purpose.trim()

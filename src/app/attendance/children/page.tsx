@@ -22,6 +22,7 @@ export default function ChildrenAttendancePage() {
   const [items, setItems] = useState<ChildItem[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "present" | "absent">("all");
   const [loading, setLoading] = useState(true);
   const [date] = useState(getTodayDate());
   const [now, setNow] = useState(new Date());
@@ -38,29 +39,26 @@ export default function ChildrenAttendancePage() {
   const [myCorrections, setMyCorrections] = useState<CorrectionRequestChild[]>([]);
   const [holidays, setHolidays] = useState<string[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
+  const prevPendingRef = useRef<number>(0);
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(interval);
+  const highlightChild = useCallback((childId: string) => {
+    setHighlightChildId(childId);
+    setTimeout(() => {
+      const el = document.getElementById(`child-${childId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 300);
+    setTimeout(() => setHighlightChildId(null), 5000);
   }, []);
 
-  useEffect(() => {
-    if (user && !isAdmin) {
-      loadMyCorrections();
-      const interval = setInterval(loadMyCorrections, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [user, isAdmin]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const today = getTodayDate();
       if (user) {
         const autoMarked = await autoMarkAbsentChildren(user.uid);
         if (autoMarked > 0) {
-          toast(`Se marcaron ${autoMarked} ninos como ausentes (pasado las 5:50pm)`, { icon: "\u2139\uFE0F" });
-          // Send email notification
+          toast(`Se marcaron ${autoMarked} niños como ausentes automáticamente (cierre 5:50pm)`, { icon: "ℹ️" });
           try {
             await fetch("/api/email/send-auto-mark-notification", {
               method: "POST",
@@ -91,25 +89,19 @@ export default function ChildrenAttendancePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [user]);
 
-  async function loadMyCorrections() {
+  const loadMyCorrections = useCallback(async () => {
     if (!user) return;
     try {
       const data = await getMyChildCorrections(user.uid);
-      const prevPending = myCorrections.filter((c) => c.status === "pending").length;
+      const prevPending = prevPendingRef.current;
       const newPending = data.filter((c) => c.status === "pending").length;
-      const resolved = data.filter((c) => c.status === "approved" || c.status === "rejected");
-      const newResolved = resolved.filter((c) => {
-        const resolvedTime = new Date(c.resolved_at || c.created_at).getTime();
-        const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-        return resolvedTime > fiveMinAgo;
-      });
 
       if (prevPending > 0 && newPending < prevPending) {
         const approved = data.find((c) => c.status === "approved" && c.child_id);
         if (approved) {
-          toast.success(`Solicitud aprobada para ${approved.child_name}. Puede volver a marcar.`);
+          toast.success(`Solicitud aprobada para ${approved.child_name}. Estado actualizado.`);
           highlightChild(approved.child_id);
           loadData();
         }
@@ -119,57 +111,53 @@ export default function ChildrenAttendancePage() {
         }
       }
 
+      prevPendingRef.current = newPending;
       setMyCorrections(data);
     } catch (e) {
       console.error("Error loading corrections:", e);
     }
-  }
+  }, [user, highlightChild, loadData]);
 
-  const highlightChild = useCallback((childId: string) => {
-    setHighlightChildId(childId);
-    setTimeout(() => {
-      const el = document.getElementById(`child-${childId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 300);
-    setTimeout(() => setHighlightChildId(null), 5000);
-  }, []);
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, [loadData]);
 
-  async function markAttendance(child: Child, status: "present" | "absent") {
+  useEffect(() => {
+    if (user && !isAdmin) {
+      loadMyCorrections();
+      const interval = setInterval(loadMyCorrections, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isAdmin, loadMyCorrections]);
+
+  const isAfterAutoMark = now.getHours() > 17 || (now.getHours() === 17 && now.getMinutes() >= 50);
+  const unmarked = items.filter((i) => !i.existing).length;
+
+  useEffect(() => {
+    if (isAfterAutoMark && unmarked > 0 && !loading) {
+      loadData();
+    }
+  }, [isAfterAutoMark, unmarked, loading, loadData]);
+
+  async function markAttendance(child: Child) {
     if (!user) return;
     try {
+      const status = "present";
       const attId = await registerSingleChildAttendance(child.id, status, user.uid);
-      const checkInTime = status === "present" ? new Date().toISOString() : null;
+      const checkInTime = new Date().toISOString();
       await logAction("create", "attendance_children", attId, {
         child_name: `${child.first_name} ${child.last_name}`,
         status,
         check_in: checkInTime,
       });
-      toast.success(status === "present" ? `${child.first_name} - Asistio (${formatTime(new Date().toISOString())})` : `${child.first_name} - No asistio`);
-
-      // Notify guardian if marked absent and guardian email exists
-      if (status === "absent" && child.guardian_email && child.guardian_email.includes("@")) {
-        fetch("/api/email/send-guardian-absence", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            childId: child.id,
-            date,
-            reason: "Marcaje presencial en lista diaria de asistencia",
-          }),
-        })
-          .then((r) => r.json())
-          .then((d) => {
-            if (d.sentCount > 0) {
-              toast.success(`Alerta de inasistencia enviada a ${child.guardian_email}`, { icon: "📧" });
-            }
-          })
-          .catch(() => {});
-      }
-
+      toast.success(`${child.first_name} — Asistió (${formatTime(checkInTime)})`);
       loadData();
-    } catch (err) { console.error("Error marking attendance:", err); toast.error("Error al marcar asistencia"); }
+    } catch (err) {
+      console.error("Error marking attendance:", err);
+      toast.error("Error al marcar asistencia");
+    }
   }
 
   function openEdit(item: ChildItem) {
@@ -191,7 +179,6 @@ export default function ChildrenAttendancePage() {
       });
       toast.success("Asistencia corregida");
 
-      // Notify guardian if changed to absent
       if (editStatus === "absent" && editItem.child.guardian_email && editItem.child.guardian_email.includes("@")) {
         fetch("/api/email/send-guardian-absence", {
           method: "POST",
@@ -206,7 +193,10 @@ export default function ChildrenAttendancePage() {
 
       setEditItem(null);
       loadData();
-    } catch (err) { console.error("Error correcting attendance:", err); toast.error("Error al corregir asistencia"); }
+    } catch (err) {
+      console.error("Error correcting attendance:", err);
+      toast.error("Error al corregir asistencia");
+    }
     setSavingEdit(false);
   }
 
@@ -226,7 +216,6 @@ export default function ChildrenAttendancePage() {
         correctionTargetStatus
       );
       toast.success("Solicitud enviada al administrador");
-      // Send email notification to admins
       try {
         await fetch("/api/email/send-correction-notification", {
           method: "POST",
@@ -243,11 +232,24 @@ export default function ChildrenAttendancePage() {
       setCorrectionItem(null);
       setCorrectionReason("");
       loadMyCorrections();
-    } catch (err) { console.error("Error submitting correction:", err); toast.error("Error al enviar solicitud"); }
+    } catch (err) {
+      console.error("Error submitting correction:", err);
+      toast.error("Error al enviar solicitud");
+    }
   }
 
-  const filtered = items
-    .filter((i) => selectedGroup === "all" || i.child.group_id === selectedGroup)
+  const groupFiltered = items.filter((i) => selectedGroup === "all" || i.child.group_id === selectedGroup);
+  const totalPresent = groupFiltered.filter((i) => i.existing?.status === "present").length;
+  const totalAbsent = groupFiltered.filter((i) => i.existing?.status === "absent").length;
+  const totalPending = groupFiltered.filter((i) => !i.existing).length;
+
+  const filtered = groupFiltered
+    .filter((i) => {
+      if (statusFilter === "pending") return !i.existing;
+      if (statusFilter === "present") return i.existing?.status === "present";
+      if (statusFilter === "absent") return i.existing?.status === "absent";
+      return true;
+    })
     .filter((i) => {
       if (!search.trim()) return true;
       const term = search.toLowerCase();
@@ -261,11 +263,6 @@ export default function ChildrenAttendancePage() {
       return sortOrder === "asc" ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
     });
 
-  const totalPresent = items.filter((i) => i.existing?.status === "present").length;
-  const totalAbsent = items.filter((i) => i.existing?.status === "absent").length;
-  const isAfterAutoMark = now.getHours() >= 17 && now.getMinutes() >= 50;
-  const unmarked = items.filter((i) => !i.existing).length;
-
   const isHoliday = holidays.includes(date);
 
   if (loading) return <LoadingSpinner label="Cargando..." />;
@@ -275,11 +272,11 @@ export default function ChildrenAttendancePage() {
       <div className="space-y-6 animate-fade-in">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl gradient-primary flex items-center justify-center shadow-md"><ClipboardDocumentCheckIcon className="w-6 h-6 text-white" /></div>
-          <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia de Ninos</h1><p className="text-sm text-gray-500 dark:text-gray-400">{date}</p></div>
+          <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia de Niños</h1><p className="text-sm text-gray-500 dark:text-gray-400">{date}</p></div>
         </div>
         <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
           <ClockIcon className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" />
-          <p className="text-gray-700 dark:text-gray-300 font-medium">{!isWeekday(date) ? "La atencion es de Lunes a Viernes" : "Hoy es dia festivo"}</p>
+          <p className="text-gray-700 dark:text-gray-300 font-medium">{!isWeekday(date) ? "La atención es de Lunes a Viernes" : "Hoy es día festivo"}</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Hoy no se registra asistencia</p>
         </div>
       </div>
@@ -291,17 +288,47 @@ export default function ChildrenAttendancePage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl gradient-primary flex items-center justify-center shadow-md"><ClipboardDocumentCheckIcon className="w-6 h-6 text-white" /></div>
-          <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia de Ninos</h1><p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2"><ClockIcon className="w-4 h-4" />{date} - {formatTime(now.toISOString())}</p></div>
+          <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia de Niños</h1><p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2"><ClockIcon className="w-4 h-4" />{date} - {formatTime(now.toISOString())}</p></div>
         </div>
         <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${isAfterAutoMark ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"}`}>
-          {isAfterAutoMark ? `Cierre del dia · ${totalPresent + totalAbsent} registrados` : `${unmarked} pendientes · Auto-cierre a las 5:50pm`}
+          {isAfterAutoMark ? `Cierre del día · ${totalPresent + totalAbsent} registrados` : `${unmarked} pendientes · Los no marcados pasan a "No asistió" a las 5:50pm`}
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"><p className="text-3xl font-bold text-gray-900 dark:text-white">{filtered.length}</p><p className="text-xs font-medium text-gray-400">Total</p></div>
-        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"><p className="text-3xl font-bold text-emerald-500">{totalPresent}</p><p className="text-xs font-medium text-gray-400">Presentes</p></div>
-        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"><p className="text-3xl font-bold text-red-500">{totalAbsent}</p><p className="text-xs font-medium text-gray-400">Ausentes</p></div>
+      {/* Tarjetas interactivas de resumen / filtro rápido */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <button
+          type="button"
+          onClick={() => setStatusFilter("all")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "all" ? "border-primary ring-2 ring-primary/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{groupFiltered.length}</p>
+          <p className="text-xs font-medium text-gray-400">Total</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("pending")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "pending" ? "border-amber-500 ring-2 ring-amber-500/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-amber-500">{totalPending}</p>
+          <p className="text-xs font-medium text-gray-400">Pendientes</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("present")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "present" ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-emerald-500">{totalPresent}</p>
+          <p className="text-xs font-medium text-gray-400">Presentes</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("absent")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "absent" ? "border-red-500 ring-2 ring-red-500/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-red-500">{totalAbsent}</p>
+          <p className="text-xs font-medium text-gray-400">Ausentes</p>
+        </button>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2">
@@ -314,7 +341,7 @@ export default function ChildrenAttendancePage() {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <MagnifyingGlassIcon className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-          <input type="text" placeholder="Buscar por nombre o ID (CT001...)..." aria-label="Buscar ninos" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full px-4 py-3 pl-11 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
+          <input type="text" placeholder="Buscar por nombre o ID (CT001...)..." aria-label="Buscar niños" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full px-4 py-3 pl-11 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
         </div>
         <button onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")} className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all" aria-label={`Ordenar ${sortOrder === "asc" ? "Z a A" : "A a Z"}`}>
           {sortOrder === "asc" ? <ArrowUpIcon className="w-4 h-4" /> : <ArrowDownIcon className="w-4 h-4" />}
@@ -330,7 +357,7 @@ export default function ChildrenAttendancePage() {
             className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 border shadow-sm transition-all duration-500 ${
               highlightChildId === item.child.id
                 ? "border-primary ring-4 ring-primary/20 opacity-100"
-                : item.existing ? "border-gray-100 dark:border-gray-800 opacity-60" : "border-gray-100 dark:border-gray-800"
+                : item.existing ? "border-gray-100 dark:border-gray-800 opacity-75" : "border-gray-100 dark:border-gray-800"
             }`}
           >
             <div className="flex items-center justify-between flex-wrap gap-3">
@@ -345,14 +372,14 @@ export default function ChildrenAttendancePage() {
                     <h3 className="font-bold text-gray-900 dark:text-white text-sm">{item.child.first_name} {item.child.last_name}</h3>
                     {item.child.child_id_code && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">{item.child.child_id_code}</span>}
                   </div>
-                  <p className="text-[11px] text-gray-400">{item.child.shift}{item.child.group_id ? ` \u00B7 ${groups.find((g) => g.id === item.child.group_id)?.name || ""}` : ""}</p>
+                  <p className="text-[11px] text-gray-400">{item.child.shift}{item.child.group_id ? ` · ${groups.find((g) => g.id === item.child.group_id)?.name || ""}` : ""}</p>
                 </div>
               </div>
               <div className="flex gap-2 items-center">
                 {item.existing ? (
                   <div className="flex items-center gap-2">
                     <div className={`flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold ${item.existing.status === "present" ? "bg-emerald-500 text-white shadow-md" : "bg-red-500 text-white shadow-md"}`}>
-                      {item.existing.status === "present" ? <><CheckCircleIcon className="w-4 h-4" />Asistio </> : <><XCircleIcon className="w-4 h-4" />No asistio</>}
+                      {item.existing.status === "present" ? <><CheckCircleIcon className="w-4 h-4" />Asistió</> : <><XCircleIcon className="w-4 h-4" />No asistió</>}
                     </div>
                     {(item.existing as AttendanceChild & { check_in?: string }).check_in && (
                       <span className="text-xs text-gray-400">{formatTime((item.existing as AttendanceChild & { check_in?: string }).check_in!)}</span>
@@ -363,7 +390,7 @@ export default function ChildrenAttendancePage() {
                         return (
                           <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300">
                             <ClockIcon className="w-4 h-4 animate-pulse text-amber-500" />
-                            En revision
+                            En revisión
                           </span>
                         );
                       }
@@ -375,7 +402,7 @@ export default function ChildrenAttendancePage() {
                             setCorrectionTargetStatus(item.existing?.status === "present" ? "absent" : "present");
                           }}
                           aria-label="Reportar error"
-                          title="Solicitar correccion al administrador"
+                          title="Solicitar corrección al administrador"
                           className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-all active:scale-95"
                         >
                           <ExclamationTriangleIcon className="w-4 h-4" />
@@ -384,14 +411,19 @@ export default function ChildrenAttendancePage() {
                     })()}
                   </div>
                 ) : (
-                  <>
-                    <button onClick={() => markAttendance(item.child, "present")} className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 active:scale-95 transition-all">
-                      <CheckCircleIcon className="w-4 h-4" />Asistio
+                  <div className="flex items-center gap-2.5">
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                      <ClockIcon className="w-3.5 h-3.5" />
+                      Pendiente
+                    </span>
+                    <button
+                      onClick={() => markAttendance(item.child)}
+                      className="flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-bold bg-emerald-500 text-white shadow-md hover:bg-emerald-600 active:scale-95 transition-all"
+                    >
+                      <CheckCircleIcon className="w-4 h-4" />
+                      Asistió
                     </button>
-                    <button onClick={() => markAttendance(item.child, "absent")} className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 active:scale-95 transition-all">
-                      <XCircleIcon className="w-4 h-4" />No asistio
-                    </button>
-                  </>
+                  </div>
                 )}
                 {isAdmin && item.existing && (
                   <button onClick={() => openEdit(item)} aria-label="Corregir asistencia" className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-all active:scale-95">
@@ -404,7 +436,17 @@ export default function ChildrenAttendancePage() {
         ))}
       </div>
 
-      {filtered.length === 0 && <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-800"><p className="text-gray-400 font-medium">{search ? "No se encontraron resultados" : "No hay ninos en este grupo"}</p></div>}
+      {filtered.length === 0 && (
+        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-800">
+          <p className="text-gray-400 font-medium">
+            {search
+              ? "No se encontraron resultados"
+              : statusFilter !== "all"
+              ? "No hay niños con el estado seleccionado"
+              : "No hay niños en este grupo"}
+          </p>
+        </div>
+      )}
 
       <Modal open={!!correctionItem} onClose={() => setCorrectionItem(null)} title="Reportar Error de Asistencia" size="md">
         {correctionItem && (
@@ -414,9 +456,9 @@ export default function ChildrenAttendancePage() {
                 <p className="font-bold text-gray-900 dark:text-white">{correctionItem.child.first_name} {correctionItem.child.last_name}</p>
                 {correctionItem.child.child_id_code && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">{correctionItem.child.child_id_code}</span>}
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Marcado como: <span className={`font-bold ${correctionItem.existing?.status === "present" ? "text-emerald-500" : "text-red-500"}`}>{correctionItem.existing?.status === "present" ? "Asistio" : "No asistio"}</span></p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Marcado como: <span className={`font-bold ${correctionItem.existing?.status === "present" ? "text-emerald-500" : "text-red-500"}`}>{correctionItem.existing?.status === "present" ? "Asistió" : "No asistió"}</span></p>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-300">Describe el error cometido. El administrador revisara tu solicitud.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Describe el error cometido. El administrador revisará tu solicitud.</p>
             <div>
               <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
                 Cambiar estado a:
@@ -432,7 +474,7 @@ export default function ChildrenAttendancePage() {
                   }`}
                 >
                   <CheckCircleIcon className="w-5 h-5 text-emerald-500" />
-                  Asistio
+                  Asistió
                 </button>
                 <button
                   type="button"
@@ -444,11 +486,11 @@ export default function ChildrenAttendancePage() {
                   }`}
                 >
                   <XCircleIcon className="w-5 h-5 text-red-500" />
-                  No asistio
+                  No asistió
                 </button>
               </div>
             </div>
-            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo del error *</label><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ej: Marque No asistio por error, el nino si asistio..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
+            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo del error *</label><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ej: Marqué Asistió por error en otro estudiante..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => setCorrectionItem(null)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors">Cancelar</button>
               <button onClick={submitCorrection} disabled={!correctionReason.trim()} className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md disabled:opacity-50">Enviar Solicitud</button>
@@ -462,16 +504,16 @@ export default function ChildrenAttendancePage() {
           <div className="space-y-4">
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
               <p className="font-bold text-gray-900 dark:text-white">{editItem.child.first_name} {editItem.child.last_name}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Estado actual: <span className={`font-bold ${editItem.existing?.status === "present" ? "text-emerald-500" : "text-red-500"}`}>{editItem.existing?.status === "present" ? "Asistio" : "No asistio"}</span></p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Estado actual: <span className={`font-bold ${editItem.existing?.status === "present" ? "text-emerald-500" : "text-red-500"}`}>{editItem.existing?.status === "present" ? "Asistió" : "No asistió"}</span></p>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Cambiar a:</label>
               <div className="flex gap-3">
-                <button onClick={() => setEditStatus("present")} className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${editStatus === "present" ? "bg-emerald-500 text-white shadow-md" : "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"}`}><CheckCircleIcon className="w-5 h-5" />Asistio</button>
-                <button onClick={() => setEditStatus("absent")} className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${editStatus === "absent" ? "bg-red-500 text-white shadow-md" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800"}`}><XCircleIcon className="w-5 h-5" />No asistio</button>
+                <button onClick={() => setEditStatus("present")} className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${editStatus === "present" ? "bg-emerald-500 text-white shadow-md" : "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"}`}><CheckCircleIcon className="w-5 h-5" />Asistió</button>
+                <button onClick={() => setEditStatus("absent")} className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${editStatus === "absent" ? "bg-red-500 text-white shadow-md" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800"}`}><XCircleIcon className="w-5 h-5" />No asistió</button>
               </div>
             </div>
-            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la correccion *</label><textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Ej: Se registro por error, el nino si asistio..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
+            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la corrección *</label><textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Ej: Se registró por error, el niño sí asistió..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
             <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setEditItem(null)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors">Cancelar</button><button onClick={saveEdit} disabled={!editNote.trim() || savingEdit} className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md disabled:opacity-50">{savingEdit ? "Guardando..." : "Corregir"}</button></div>
           </div>
         )}

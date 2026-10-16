@@ -5,13 +5,12 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
 import { getTodayDate, formatTime, isWeekday } from "@/lib/utils";
-import { registerStaffAttendance, registerStaffAbsent, autoMarkAbsentStaff, updateStaffAttendance } from "@/lib/attendance";
+import { registerStaffAttendance, autoMarkAbsentStaff, updateStaffAttendance } from "@/lib/attendance";
 import { createCorrectionRequest, getMyStaffCorrections } from "@/lib/corrections";
 import { logAction } from "@/lib/audit";
 import { toast } from "react-hot-toast";
 import { PencilIcon, CheckCircleIcon, XCircleIcon, ClockIcon, UserGroupIcon, ArrowPathIcon, MagnifyingGlassIcon, ArrowUpIcon, ArrowDownIcon } from "@heroicons/react/24/outline";
 import { Modal } from "@/components/ui/Modal";
-import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import type { Teacher, Practitioner, AttendanceStaff, CorrectionRequest } from "@/types/database";
 
@@ -29,6 +28,7 @@ export default function StaffAttendancePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [editItem, setEditItem] = useState<StaffItem | null>(null);
+  const [editStatus, setEditStatus] = useState<"present" | "absent">("present");
   const [editNote, setEditNote] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [correctionItem, setCorrectionItem] = useState<StaffItem | null>(null);
@@ -37,48 +37,18 @@ export default function StaffAttendancePage() {
   const [myCorrections, setMyCorrections] = useState<CorrectionRequest[]>([]);
   const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "present" | "absent">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "teacher" | "practitioner">("all");
   const [holidays, setHolidays] = useState<string[]>([]);
+  const prevPendingRef = useRef<number>(0);
 
-  useEffect(() => { loadData(); const i = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(i); }, []);
-
-  useEffect(() => {
-    if (user && !isAdmin) {
-      loadMyCorrections();
-      const interval = setInterval(loadMyCorrections, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [user, isAdmin]);
-
-  async function loadMyCorrections() {
-    if (!user) return;
-    try {
-      const data = await getMyStaffCorrections(user.uid);
-      const prevPending = myCorrections.filter((c) => c.status === "pending").length;
-      const newPending = data.filter((c) => c.status === "pending").length;
-      if (prevPending > 0 && newPending < prevPending) {
-        const approved = data.find((c) => c.status === "approved");
-        if (approved) {
-          toast.success(`Solicitud aprobada para ${approved.staff_name}. ${approved.action_resolved === "signature_enabled" ? "Ya puede firmar." : "Marcado como presente."}`);
-          loadData();
-        }
-        const rejected = data.find((c) => c.status === "rejected");
-        if (rejected) {
-          toast.error(`Solicitud rechazada: ${rejected.admin_note || "Sin motivo"}`);
-        }
-      }
-      setMyCorrections(data);
-    } catch (e) {
-      console.error("Error loading staff corrections:", e);
-    }
-  }
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const today = getTodayDate();
       if (user) {
         const autoMarked = await autoMarkAbsentStaff(user.uid);
         if (autoMarked > 0) {
-          toast(`Se marcaron ${autoMarked} miembros del personal como ausentes (pasado las 4:30pm)`, { icon: "\u2139\uFE0F" });
+          toast(`Se marcaron ${autoMarked} miembros del personal como ausentes (cierre 4:30pm)`, { icon: "ℹ️" });
           try {
             await fetch("/api/email/send-auto-mark-notification", {
               method: "POST",
@@ -107,17 +77,54 @@ export default function StaffAttendancePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [user]);
 
-  async function markAbsent(item: StaffItem) {
+  const loadMyCorrections = useCallback(async () => {
     if (!user) return;
     try {
-      await registerStaffAbsent(item.staff.id, item.type, user.uid);
-      await logAction("create", "attendance_staff", null, { staff_id: item.staff.id, staff_name: `${item.staff.first_name} ${item.staff.last_name}`, staff_type: item.type, signed: false, status: "absent" });
-      toast.success(`${item.staff.first_name} - No asistio`);
+      const data = await getMyStaffCorrections(user.uid);
+      const prevPending = prevPendingRef.current;
+      const newPending = data.filter((c) => c.status === "pending").length;
+      if (prevPending > 0 && newPending < prevPending) {
+        const approved = data.find((c) => c.status === "approved");
+        if (approved) {
+          toast.success(`Solicitud aprobada para ${approved.staff_name}. ${approved.action_resolved === "signature_enabled" ? "Ya puede firmar." : "Marcado como presente."}`);
+          loadData();
+        }
+        const rejected = data.find((c) => c.status === "rejected");
+        if (rejected) {
+          toast.error(`Solicitud rechazada: ${rejected.admin_note || "Sin motivo"}`);
+        }
+      }
+      prevPendingRef.current = newPending;
+      setMyCorrections(data);
+    } catch (e) {
+      console.error("Error loading staff corrections:", e);
+    }
+  }, [user, loadData]);
+
+  useEffect(() => {
+    loadData();
+    const i = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(i);
+  }, [loadData]);
+
+  useEffect(() => {
+    if (user && !isAdmin) {
+      loadMyCorrections();
+      const interval = setInterval(loadMyCorrections, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isAdmin, loadMyCorrections]);
+
+  const isAfterAutoMark = now.getHours() > 16 || (now.getHours() === 16 && now.getMinutes() >= 30);
+  const unmarked = items.filter((i) => !i.attendance).length;
+
+  useEffect(() => {
+    if (isAfterAutoMark && unmarked > 0 && !loading) {
       loadData();
-    } catch (err) { console.error("Error marking absent:", err); toast.error("Error al marcar"); }
-  }
+    }
+  }, [isAfterAutoMark, unmarked, loading, loadData]);
 
   function startSignature(item: StaffItem) {
     setSigningFor(item);
@@ -157,17 +164,27 @@ export default function StaffAttendancePage() {
       setSigningFor(null);
       loadData();
     } catch (err) { console.error("Error saving attendance:", err); toast.error("Error al registrar"); }
-  }, [signingFor, user]);
+  }, [signingFor, user, loadData]);
 
-  function openEdit(item: StaffItem) { setEditItem(item); setEditNote(""); }
+  function openEdit(item: StaffItem) {
+    setEditItem(item);
+    setEditStatus(item.attendance?.check_in ? "present" : "absent");
+    setEditNote("");
+  }
 
   async function saveEdit() {
     if (!editItem?.attendance || !editNote.trim() || !user) return;
     setSavingEdit(true);
     try {
-      await updateStaffAttendance(editItem.attendance.id, editItem.attendance.check_in, editNote.trim(), user.uid);
-      await logAction("update", "attendance_staff", editItem.attendance.id, { staff_name: `${editItem.staff.first_name} ${editItem.staff.last_name}`, staff_type: editItem.type, note: editNote.trim() });
-      toast.success("Asistencia corregida");
+      const newCheckIn = editStatus === "present" ? (editItem.attendance.check_in || new Date().toISOString()) : null;
+      await updateStaffAttendance(editItem.attendance.id, newCheckIn, editNote.trim(), user.uid);
+      await logAction("update", "attendance_staff", editItem.attendance.id, {
+        staff_name: `${editItem.staff.first_name} ${editItem.staff.last_name}`,
+        staff_type: editItem.type,
+        new_status: editStatus,
+        note: editNote.trim(),
+      });
+      toast.success("Asistencia de personal corregida");
       setEditItem(null);
       loadData();
     } catch (err) { console.error("Error correcting attendance:", err); toast.error("Error al corregir asistencia"); }
@@ -193,7 +210,18 @@ export default function StaffAttendancePage() {
     } catch (err) { console.error("Error requesting correction:", err); toast.error("Error al enviar solicitud"); }
   }
 
-  const filtered = items
+  const roleFiltered = items.filter((i) => roleFilter === "all" || i.type === roleFilter);
+  const totalPresent = roleFiltered.filter((i) => i.attendance?.check_in).length;
+  const totalAbsent = roleFiltered.filter((i) => i.attendance && !i.attendance.check_in).length;
+  const totalPending = roleFiltered.filter((i) => !i.attendance).length;
+
+  const filtered = roleFiltered
+    .filter((i) => {
+      if (statusFilter === "pending") return !i.attendance;
+      if (statusFilter === "present") return !!i.attendance?.check_in;
+      if (statusFilter === "absent") return !!i.attendance && !i.attendance.check_in;
+      return true;
+    })
     .filter((i) => {
       if (!search.trim()) return true;
       const term = search.toLowerCase();
@@ -206,11 +234,6 @@ export default function StaffAttendancePage() {
       const nameB = `${b.staff.first_name} ${b.staff.last_name}`.toLowerCase();
       return sortOrder === "asc" ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
     });
-
-  const totalPresent = items.filter((i) => i.attendance?.check_in).length;
-  const totalAbsent = items.filter((i) => i.attendance && !i.attendance.check_in).length;
-  const isAfterAutoMark = now.getHours() >= 16 && now.getMinutes() >= 30;
-  const unmarked = items.filter((i) => !i.attendance).length;
 
   const isHoliday = holidays.includes(date);
 
@@ -225,7 +248,7 @@ export default function StaffAttendancePage() {
         </div>
         <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
           <ClockIcon className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" />
-          <p className="text-gray-700 dark:text-gray-300 font-medium">{!isWeekday(date) ? "La atencion es de Lunes a Viernes" : "Hoy es dia festivo"}</p>
+          <p className="text-gray-700 dark:text-gray-300 font-medium">{!isWeekday(date) ? "La atención es de Lunes a Viernes" : "Hoy es día festivo"}</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Hoy no se registra asistencia</p>
         </div>
       </div>
@@ -234,19 +257,63 @@ export default function StaffAttendancePage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-xl gradient-success flex items-center justify-center shadow-md"><UserGroupIcon className="w-6 h-6 text-white" /></div>
-        <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia de Personal</h1><p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2"><ClockIcon className="w-4 h-4" />{date} - {formatTime(now.toISOString())}</p></div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl gradient-success flex items-center justify-center shadow-md"><UserGroupIcon className="w-6 h-6 text-white" /></div>
+          <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Asistencia de Personal</h1><p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2"><ClockIcon className="w-4 h-4" />{date} - {formatTime(now.toISOString())}</p></div>
+        </div>
+        <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${isAfterAutoMark ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"}`}>
+          {isAfterAutoMark ? `Cierre del día · ${totalPresent + totalAbsent} registrados` : `${unmarked} pendientes · Auto-cierre a las 4:30pm`}
+        </div>
       </div>
 
-      <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${isAfterAutoMark ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"}`}>
-        {isAfterAutoMark ? `Cierre del dia · ${totalPresent + totalAbsent} registrados` : `${unmarked} pendientes · Auto-cierre a las 4:30pm`}
+      {/* Tarjetas interactivas de resumen / filtro por estado */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <button
+          type="button"
+          onClick={() => setStatusFilter("all")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "all" ? "border-primary ring-2 ring-primary/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{roleFiltered.length}</p>
+          <p className="text-xs font-medium text-gray-400">Total</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("pending")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "pending" ? "border-amber-500 ring-2 ring-amber-500/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-amber-500">{totalPending}</p>
+          <p className="text-xs font-medium text-gray-400">Pendientes</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("present")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "present" ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-emerald-500">{totalPresent}</p>
+          <p className="text-xs font-medium text-gray-400">Presentes</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("absent")}
+          className={`bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border transition-all ${statusFilter === "absent" ? "border-red-500 ring-2 ring-red-500/20 shadow-sm" : "border-gray-100 dark:border-gray-800 hover:border-gray-300"}`}
+        >
+          <p className="text-3xl font-bold text-red-500">{totalAbsent}</p>
+          <p className="text-xs font-medium text-gray-400">Ausentes</p>
+        </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"><p className="text-3xl font-bold text-gray-900 dark:text-white">{items.length}</p><p className="text-xs font-medium text-gray-400">Total</p></div>
-        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"><p className="text-3xl font-bold text-emerald-500">{totalPresent}</p><p className="text-xs font-medium text-gray-400">Presentes</p></div>
-        <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"><p className="text-3xl font-bold text-red-500">{totalAbsent}</p><p className="text-xs font-medium text-gray-400">Ausentes</p></div>
+      {/* Filtro por tipo de personal */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <button onClick={() => setRoleFilter("all")} className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${roleFilter === "all" ? "gradient-primary text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
+          Todo el personal ({items.length})
+        </button>
+        <button onClick={() => setRoleFilter("teacher")} className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${roleFilter === "teacher" ? "gradient-primary text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
+          Profesores ({items.filter((i) => i.type === "teacher").length})
+        </button>
+        <button onClick={() => setRoleFilter("practitioner")} className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${roleFilter === "practitioner" ? "gradient-primary text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
+          Practicantes ({items.filter((i) => i.type === "practitioner").length})
+        </button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -277,14 +344,14 @@ export default function StaffAttendancePage() {
                   <>
                     {!item.attendance.check_in ? (
                       <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500 text-white shadow-md text-sm font-bold"><XCircleIcon className="w-4 h-4" />No asistio</div>
+                        <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500 text-white shadow-md text-sm font-bold"><XCircleIcon className="w-4 h-4" />No asistió</div>
                         {!isAdmin && (() => {
                           const pendingCorr = myCorrections.find((c) => c.staff_id === item.staff.id && c.status === "pending" && c.attendance_date === date);
                           if (pendingCorr) {
                             return (
                               <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300">
                                 <ClockIcon className="w-4 h-4 animate-pulse text-amber-500" />
-                                En revision
+                                En revisión
                               </span>
                             );
                           }
@@ -295,8 +362,8 @@ export default function StaffAttendancePage() {
                                 setCorrectionReason("");
                                 setActionRequested("enable_signature");
                               }}
-                              aria-label="Solicitar correccion"
-                              title="Solicitar correccion al administrador"
+                              aria-label="Solicitar corrección"
+                              title="Solicitar corrección al administrador"
                               className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-all active:scale-95"
                             >
                               <ArrowPathIcon className="w-4 h-4" />
@@ -314,10 +381,16 @@ export default function StaffAttendancePage() {
                     )}
                   </>
                 ) : (
-                  <>
-                    <button onClick={() => startSignature(item)} className="flex items-center gap-2 px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95"><PencilIcon className="w-4 h-4" />Firmar</button>
-                    <button onClick={() => markAbsent(item)} className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 font-semibold rounded-xl active:scale-95 transition-all"><XCircleIcon className="w-4 h-4" />No asistio</button>
-                  </>
+                  <div className="flex items-center gap-2.5">
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                      <ClockIcon className="w-3.5 h-3.5" />
+                      Pendiente
+                    </span>
+                    <button onClick={() => startSignature(item)} className="flex items-center gap-2 px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95">
+                      <PencilIcon className="w-4 h-4" />
+                      Firmar Asistencia
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -325,18 +398,18 @@ export default function StaffAttendancePage() {
         ))}
       </div>
 
-      {filtered.length === 0 && <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-800"><p className="text-gray-400 font-medium">{search ? "No se encontraron resultados" : "No hay personal registrado"}</p></div>}
+      {filtered.length === 0 && <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-800"><p className="text-gray-400 font-medium">{search ? "No se encontraron resultados" : "No hay personal en este filtro"}</p></div>}
 
-      <Modal open={!!correctionItem} onClose={() => setCorrectionItem(null)} title="Solicitar Correccion de Personal" size="md">
+      <Modal open={!!correctionItem} onClose={() => setCorrectionItem(null)} title="Solicitar Corrección de Personal" size="md">
         {correctionItem && (
           <div className="space-y-4">
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
               <p className="font-bold text-gray-900 dark:text-white">{correctionItem.staff.first_name} {correctionItem.staff.last_name}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{correctionItem.type === "teacher" ? "Profesor" : "Practicante"} · Marcado actualmente como No asistio</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{correctionItem.type === "teacher" ? "Profesor" : "Practicante"} · Marcado actualmente como No asistió</p>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                Accion solicitada:
+                Acción solicitada:
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
@@ -365,7 +438,7 @@ export default function StaffAttendancePage() {
                 </button>
               </div>
             </div>
-            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la solicitud *</label><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ej: Marque No asistio por error, el personal si asistio..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
+            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la solicitud *</label><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ej: El personal sí asistió pero no alcanzó a firmar antes del cierre..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
             <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setCorrectionItem(null)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors">Cancelar</button><button onClick={requestCorrection} disabled={!correctionReason.trim()} className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md disabled:opacity-50">Enviar Solicitud</button></div>
           </div>
         )}
@@ -375,8 +448,8 @@ export default function StaffAttendancePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Firma digital">
           <div className="fixed inset-0 bg-black/50" onClick={() => { setShowSignature(false); setSigningFor(null); }} aria-hidden="true" />
           <div className="relative bg-white dark:bg-[#1a2438] rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-fade-in">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Firma Digital</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Firma con el dedo o con el mouse.</p>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Firma Digital — {signingFor?.staff.first_name} {signingFor?.staff.last_name}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Firma con el dedo o con el mouse en el recuadro.</p>
             <div className="rounded-xl overflow-hidden border-2 border-gray-200 dark:border-gray-700 shadow-md mb-4">
               <canvas ref={canvasRef} className="w-full h-48 touch-none cursor-crosshair" onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw} />
             </div>
@@ -396,9 +469,16 @@ export default function StaffAttendancePage() {
           <div className="space-y-4">
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
               <p className="font-bold text-gray-900 dark:text-white">{editItem.staff.first_name} {editItem.staff.last_name}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{editItem.type === "teacher" ? "Profesor" : "Practicante"}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{editItem.type === "teacher" ? "Profesor" : "Practicante"} · Estado actual: <span className={`font-bold ${editItem.attendance?.check_in ? "text-emerald-500" : "text-red-500"}`}>{editItem.attendance?.check_in ? "Presente" : "No asistió"}</span></p>
             </div>
-            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la correccion *</label><textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Ej: Se registro por error, el personal si asistio..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Cambiar a:</label>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setEditStatus("present")} className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${editStatus === "present" ? "bg-emerald-500 text-white shadow-md" : "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"}`}><CheckCircleIcon className="w-5 h-5" />Presente</button>
+                <button type="button" onClick={() => setEditStatus("absent")} className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${editStatus === "absent" ? "bg-red-500 text-white shadow-md" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800"}`}><XCircleIcon className="w-5 h-5" />No asistió</button>
+              </div>
+            </div>
+            <div><label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">Motivo de la corrección *</label><textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Ej: Se registró por error, el personal sí asistió..." rows={3} className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" /></div>
             <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setEditItem(null)} className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 transition-colors">Cancelar</button><button onClick={saveEdit} disabled={!editNote.trim() || savingEdit} className="px-5 py-2.5 gradient-primary text-white font-semibold rounded-xl shadow-md disabled:opacity-50">{savingEdit ? "Guardando..." : "Corregir"}</button></div>
           </div>
         )}

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo, Suspense } from "react";
+import { useCallback, useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import {
   getInstitutionProfile,
@@ -25,7 +25,6 @@ import {
   MagnifyingGlassIcon,
   CalendarDaysIcon,
   CheckCircleIcon,
-  BuildingOffice2Icon,
 } from "@heroicons/react/24/outline";
 import type { Child, Group, Teacher, Practitioner, AttendanceChild, AttendanceStaff, InstitutionProfile } from "@/types/database";
 
@@ -68,7 +67,6 @@ function CertificatesContent() {
   const [customContractType, setCustomContractType] = useState("Término Fijo");
   const [customSalary, setCustomSalary] = useState("");
   const [isCurrentlyWorking, setIsCurrentlyWorking] = useState(true);
-  const [customEndDate, setCustomEndDate] = useState("");
 
   // Calculation and preview state
   const [calculating, setCalculating] = useState(false);
@@ -84,25 +82,28 @@ function CertificatesContent() {
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
-
-  async function loadInitialData() {
+  const loadInitialData = useCallback(async () => {
     try {
-      const [inst, cSnap, gSnap, tSnap, pSnap] = await Promise.all([
+      const [inst, rawKids, rawGroups, rawTeachers, rawPractitioners] = await Promise.all([
         getInstitutionProfile().catch(() => DEFAULT_INSTITUTION),
-        getDocs(collection(getFirebaseDb(), "children")).catch(() => ({ docs: [] } as any)),
-        getDocs(collection(getFirebaseDb(), "groups")).catch(() => ({ docs: [] } as any)),
-        getDocs(collection(getFirebaseDb(), "teachers")).catch(() => ({ docs: [] } as any)),
-        getDocs(collection(getFirebaseDb(), "practitioners")).catch(() => ({ docs: [] } as any)),
+        getDocs(collection(getFirebaseDb(), "children"))
+          .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Child)))
+          .catch(() => [] as Child[]),
+        getDocs(collection(getFirebaseDb(), "groups"))
+          .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Group)))
+          .catch(() => [] as Group[]),
+        getDocs(collection(getFirebaseDb(), "teachers"))
+          .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher)))
+          .catch(() => [] as Teacher[]),
+        getDocs(collection(getFirebaseDb(), "practitioners"))
+          .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner)))
+          .catch(() => [] as Practitioner[]),
       ]);
 
       setInstitution(inst || DEFAULT_INSTITUTION);
 
       // Children list: active and sorted in JS
-      const kids = (cSnap.docs || [])
-        .map((d: any) => ({ id: d.id, ...d.data() } as Child))
+      const kids = rawKids
         .filter((c: Child) => c.status !== "inactive")
         .sort((a: Child, b: Child) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
       setChildrenList(kids);
@@ -114,15 +115,13 @@ function CertificatesContent() {
       }
 
       // Groups
-      const groupList = (gSnap.docs || [])
-        .map((d: any) => ({ id: d.id, ...d.data() } as Group))
-        .sort((a: Group, b: Group) => (a.name || "").localeCompare(b.name || ""));
+      const groupList = rawGroups.sort((a: Group, b: Group) => (a.name || "").localeCompare(b.name || ""));
       setGroups(groupList);
 
       // Teachers
-      const tList = (tSnap.docs || [])
-        .map((d: any) => ({ id: d.id, ...d.data() } as Teacher))
-        .sort((a: Teacher, b: Teacher) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
+      const tList = rawTeachers.sort((a: Teacher, b: Teacher) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
       setTeachersList(tList);
 
       if (urlType === "teachers" && urlId && tList.some((t: Teacher) => t.id === urlId)) {
@@ -139,9 +138,9 @@ function CertificatesContent() {
       }
 
       // Practitioners
-      const pList = (pSnap.docs || [])
-        .map((d: any) => ({ id: d.id, ...d.data() } as Practitioner))
-        .sort((a: Practitioner, b: Practitioner) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
+      const pList = rawPractitioners.sort((a: Practitioner, b: Practitioner) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
       setPractitionersList(pList);
 
       if (urlType === "practitioners" && urlId && pList.some((p: Practitioner) => p.id === urlId)) {
@@ -158,18 +157,13 @@ function CertificatesContent() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [urlType, urlId]);
 
-  // Recalculate stats when selection or dates change
   useEffect(() => {
-    if (activeCertType === "children" && selectedChildId) {
-      computeChildStats();
-    } else if (activeCertType === "practitioners" && selectedPractitionerId) {
-      computePractitionerStats();
-    }
-  }, [activeCertType, selectedChildId, selectedPractitionerId, startDate, endDate, dailyHours]);
+    loadInitialData();
+  }, [loadInitialData]);
 
-  async function computeChildStats() {
+  const computeChildStats = useCallback(async () => {
     setCalculating(true);
     try {
       const q = query(
@@ -200,9 +194,9 @@ function CertificatesContent() {
     } finally {
       setCalculating(false);
     }
-  }
+  }, [selectedChildId, startDate, endDate]);
 
-  async function computePractitionerStats() {
+  const computePractitionerStats = useCallback(async () => {
     setCalculating(true);
     try {
       const q = query(
@@ -233,7 +227,16 @@ function CertificatesContent() {
     } finally {
       setCalculating(false);
     }
-  }
+  }, [selectedPractitionerId, startDate, endDate, dailyHours]);
+
+  // Recalculate stats when selection or dates change
+  useEffect(() => {
+    if (activeCertType === "children" && selectedChildId) {
+      computeChildStats();
+    } else if (activeCertType === "practitioners" && selectedPractitionerId) {
+      computePractitionerStats();
+    }
+  }, [activeCertType, selectedChildId, selectedPractitionerId, computeChildStats, computePractitionerStats]);
 
   // Filtered children search
   const filteredChildren = useMemo(() => {
@@ -318,7 +321,7 @@ function CertificatesContent() {
             jobTitle: customJobTitle || selectedTeacher.job_title || selectedTeacher.role || "Docente Titular",
             contractType: customContractType,
             startDate: selectedTeacher.hire_date || startDate,
-            endDate: isCurrentlyWorking ? null : customEndDate || endDate,
+            endDate: isCurrentlyWorking ? null : endDate,
             salary: customSalary,
             purpose,
             institution: inst,

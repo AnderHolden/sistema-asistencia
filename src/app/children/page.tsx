@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
@@ -18,9 +18,7 @@ import {
   MagnifyingGlassIcon,
   UserGroupIcon,
   DocumentTextIcon,
-  CalendarDaysIcon,
   PhoneIcon,
-  UserIcon,
   CheckCircleIcon,
   XCircleIcon,
   ClockIcon,
@@ -71,11 +69,7 @@ export default function ChildrenPage() {
     return `CT${String(maxNum + 1).padStart(3, "0")}`;
   }, [children]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const [childrenSnap, groupsSnap] = await Promise.all([
         getDocs(query(collection(getFirebaseDb(), "children"), orderBy("first_name"))),
@@ -95,7 +89,11 @@ export default function ChildrenPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   function openCreate() {
     setEditingChild(null);
