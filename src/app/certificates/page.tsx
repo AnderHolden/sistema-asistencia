@@ -300,6 +300,7 @@ function CertificatesContent() {
             totalHours: calculatedStats.hours,
             dailyHours,
             performanceNote,
+            purpose,
             institution: inst,
           },
           action

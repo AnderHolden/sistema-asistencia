@@ -113,6 +113,23 @@ type JsPDFDoc = InstanceType<typeof import("jspdf").default> & {
   lastAutoTable?: { finalY?: number };
 };
 
+function sanitizePdfText(text: string): string {
+  return (text || "")
+    .replace(/[\u2022\u2023\u25E6]/g, "·")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[^\x20-\xFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function wrapTextWithinWidth(doc: JsPDFDoc, text: string, maxWidth: number): string[] {
+  const safeText = sanitizePdfText(text);
+  if (!safeText) return [];
+  return doc.splitTextToSize(safeText, maxWidth - 2) as string[];
+}
+
 // -----------------------------------------------------------------------------
 // DIBUJADO DE MEMBRETE OFICIAL (LOGO + COLORES DE MARCA + DATOS INSTITUCIONALES)
 // -----------------------------------------------------------------------------
@@ -129,24 +146,19 @@ function drawOfficialHeader(
   const contentWidth = pageWidth - margin * 2;
 
   // 1. Banda Superior Decorativa con los 4 Colores Institucionales
-  // Azul Institucional (Cielo y seriedad)
   doc.setFillColor(30, 64, 175);
   doc.rect(margin, 8, contentWidth, 3, "F");
 
-  // Franja fina inferior multicolor (Rojo, Amarillo, Verde)
   const third = contentWidth / 3;
-  // Rojo Cálido (Techo y Amor)
   doc.setFillColor(229, 57, 53);
   doc.rect(margin, 11, third, 1, "F");
-  // Amarillo Dorado (Sol y Alegría)
   doc.setFillColor(245, 158, 11);
   doc.rect(margin + third, 11, third, 1, "F");
-  // Verde Esperanza (Crecimiento y Césped)
   doc.setFillColor(46, 125, 50);
   doc.rect(margin + third * 2, 11, third, 1, "F");
 
   // 2. Logo Oficial de Casita de Tareas
-  const logoSize = 25; // 25x25 mm
+  const logoSize = 25;
   if (logoBase64) {
     try {
       doc.addImage(logoBase64, "PNG", margin, 15, logoSize, logoSize);
@@ -158,37 +170,43 @@ function drawOfficialHeader(
   }
 
   // 3. Texto del Membrete Oficial
-  const textX = margin + logoSize + 4; // 18 + 25 + 4 = 47 mm
+  const textX = margin + logoSize + 4;
+  const maxHeaderWidth = pageWidth - margin - textX;
 
   // Nombre de la Institución (ajuste dinámico para nombres largos)
-  const upperName = inst.institution_name.toUpperCase();
-  const maxHeaderWidth = pageWidth - margin - textX;
-  let headerFontSize = 14.5;
+  const upperName = sanitizePdfText(inst.institution_name || "Casita de Tareas").toUpperCase();
+  let headerFontSize = 13.5;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(headerFontSize);
-  while (doc.getTextWidth(upperName) > maxHeaderWidth && headerFontSize > 10) {
+  while (doc.getTextWidth(upperName) > maxHeaderWidth && headerFontSize > 8.5) {
     headerFontSize -= 0.5;
     doc.setFontSize(headerFontSize);
   }
-  doc.setTextColor(30, 64, 175); // Azul Institucional
-  doc.text(upperName, textX, 22);
+  doc.setTextColor(30, 64, 175);
+  doc.text(upperName, textX, 21.5);
 
   // Lema Oficial
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(229, 57, 53); // Rojo Cálido / Coral
-  doc.text("La Alegría del Conocimiento  •  Enseñando con Amor", textX, 27);
+  doc.setFontSize(8.2);
+  doc.setTextColor(229, 57, 53);
+  const sloganText = inst.slogan || "La Alegría del Conocimiento • Enseñando con Amor";
+  const sloganLines = wrapTextWithinWidth(doc, sloganText, maxHeaderWidth);
+  doc.text(sloganLines[0] || sloganText, textX, 26.5);
 
   // Datos Institucionales (NIT, Ubicación, Teléfono)
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(71, 85, 105); // Gris pizarra suave
-  doc.text(`NIT: ${inst.nit}  •  ${inst.city}`, textX, 32);
-  doc.text(`Sede: ${inst.address}  •  Teléfono: ${inst.phone}`, textX, 36);
+  doc.setFontSize(7.8);
+  doc.setTextColor(71, 85, 105);
+  const nitCityLine = wrapTextWithinWidth(doc, `NIT: ${inst.nit}  •  ${inst.city}`, maxHeaderWidth);
+  doc.text(nitCityLine[0] || "", textX, 31.5);
+
+  const addressPhoneLine = wrapTextWithinWidth(doc, `Sede: ${inst.address}  •  Tel: ${inst.phone}`, maxHeaderWidth);
+  doc.text(addressPhoneLine[0] || "", textX, 35.5);
 
   // Correo de contacto oficial
-  doc.setTextColor(2, 132, 199); // Azul cielo
-  doc.text(`Correo Oficial: ${inst.email}`, textX, 40);
+  doc.setTextColor(2, 132, 199);
+  const emailLine = wrapTextWithinWidth(doc, `Correo Oficial: ${inst.email}`, maxHeaderWidth);
+  doc.text(emailLine[0] || "", textX, 39.5);
 
   // Línea separadora suave del membrete
   doc.setDrawColor(226, 232, 240);
@@ -196,50 +214,55 @@ function drawOfficialHeader(
   doc.line(margin, 44, pageWidth - margin, 44);
 
   // 4. Bloque de Radicado y Control Institucional
-  const badgeWidth = 62;
+  const badgeWidth = 64;
   const badgeX = pageWidth - margin - badgeWidth;
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
   doc.roundedRect(badgeX, 47, badgeWidth, 10.5, 2, 2, "FD");
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
+  doc.setFontSize(6.8);
   doc.setTextColor(30, 64, 175);
-  doc.text("RADICADO OFICIAL No.:", badgeX + 3, 51.5);
-  doc.setFontSize(8);
+  doc.text("RADICADO OFICIAL No.:", badgeX + 3, 51.3);
+  doc.setFontSize(7.8);
   doc.setTextColor(15, 23, 42);
-  doc.text(code, badgeX + 3, 55.5);
+  doc.text(code, badgeX + 3, 55.3);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text("SISTEMA DE GESTIÓN Y CONTROL INSTITUCIONAL", margin, 52);
+  doc.text("SISTEMA DE GESTIÓN Y CONTROL INSTITUCIONAL", margin, 51.8);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
-  doc.text("Certificación Oficial con Validez Legal y Académica", margin, 55.5);
+  doc.text("Certificación Oficial con Validez Legal y Académica", margin, 55.3);
 
-  // 5. Título Principal del Documento (Recuadro elegante en azul suave)
-  const titleY = 63;
-  doc.setFillColor(239, 246, 255); // Fondo azul muy claro
-  doc.setDrawColor(191, 219, 254); // Borde azul suave
+  // 5. Título Principal del Documento (Recuadro elegante en azul institucional)
+  const titleY = 62;
+  doc.setFillColor(239, 246, 255);
+  doc.setDrawColor(191, 219, 254);
   doc.roundedRect(margin, titleY, contentWidth, 11, 2, 2, "FD");
 
+  let titleFontSize = 10.5;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.setFontSize(titleFontSize);
+  while (doc.getTextWidth(title) > contentWidth - 8 && titleFontSize > 8) {
+    titleFontSize -= 0.5;
+    doc.setFontSize(titleFontSize);
+  }
   doc.setTextColor(30, 64, 175);
-  doc.text(title, pageWidth / 2, titleY + 7.5, { align: "center" });
+  doc.text(title, pageWidth / 2, titleY + 7.2, { align: "center" });
 
-  // 6. Preámbulo Institucional
-  const preamY = 82;
+  // 6. Preámbulo Institucional Unificado
+  const preamY = 81;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
+  doc.setFontSize(9.8);
   doc.setTextColor(30, 64, 175);
-  doc.text("LA DIRECCIÓN DE CASITA DE TAREAS", pageWidth / 2, preamY, { align: "center" });
-  doc.setFontSize(9.5);
-  doc.setTextColor(229, 57, 53); // Rojo Coral
-  doc.text(preambleSubtitle, pageWidth / 2, preamY + 5.5, { align: "center" });
+  doc.text("LA DIRECCIÓN GENERAL Y REPRESENTACIÓN LEGAL", pageWidth / 2, preamY, { align: "center" });
+  doc.setFontSize(9.2);
+  doc.setTextColor(229, 57, 53);
+  doc.text(preambleSubtitle, pageWidth / 2, preamY + 5.2, { align: "center" });
 
-  return 94; // Retorna la posición Y donde comienza el cuerpo del texto
+  return 93;
 }
 
 function drawFallbackLogo(doc: JsPDFDoc, x: number, y: number, size: number) {
@@ -261,7 +284,8 @@ function drawOfficialFooter(doc: JsPDFDoc, inst: InstitutionProfile, code: strin
   const margin = 18;
   const contentWidth = pageWidth - margin * 2;
 
-  const sigY = pageHeight - 55;
+  const sigY = pageHeight - 54;
+  const leftBlockMaxWidth = 88;
 
   // Firma Digital de la Representante Legal
   if (inst.signature_url) {
@@ -275,61 +299,77 @@ function drawOfficialFooter(doc: JsPDFDoc, inst: InstitutionProfile, code: strin
   // Línea de firma elegante
   doc.setDrawColor(30, 64, 175);
   doc.setLineWidth(0.5);
-  doc.line(margin, sigY, margin + 75, sigY);
+  doc.line(margin, sigY, margin + 78, sigY);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10.5);
+  doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(inst.legal_representative, margin, sigY + 5);
+  const repLines = wrapTextWithinWidth(doc, inst.legal_representative, leftBlockMaxWidth);
+  doc.text(repLines[0] || inst.legal_representative, margin, sigY + 5);
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
+  doc.setFontSize(8.2);
   doc.setTextColor(71, 85, 105);
   if (inst.representative_id) {
-    doc.text(`C.C. No. ${inst.representative_id}`, margin, sigY + 9.5);
+    doc.text(`C.C. No. ${inst.representative_id}`, margin, sigY + 9.3);
   }
-  doc.text(inst.representative_role || "Directora / Representante Legal", margin, sigY + 14);
+  const roleLines = wrapTextWithinWidth(
+    doc,
+    inst.representative_role || "Directora General y Representante Legal",
+    leftBlockMaxWidth
+  );
+  doc.text(roleLines[0] || "Directora General y Representante Legal", margin, sigY + 13.6);
 
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.2);
   doc.setTextColor(30, 64, 175);
-  doc.text(inst.institution_name, margin, sigY + 18.5);
+  const instLines = wrapTextWithinWidth(doc, inst.institution_name, leftBlockMaxWidth);
+  doc.text(instLines, margin, sigY + 17.9);
 
-  // Sello Digital Institucional de Verificación (a la derecha)
-  const stampWidth = 68;
+  // Sello Digital Institucional de Verificación (a la derecha, encajado dentro del recuadro)
+  const stampWidth = 72;
+  const stampHeight = 31;
   const stampX = pageWidth - margin - stampWidth;
+  const stampY = sigY - 12;
   const stampCenterX = stampX + stampWidth / 2;
+
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(203, 213, 225);
-  doc.roundedRect(stampX, sigY - 12, stampWidth, 31, 2, 2, "FD");
+  doc.setLineWidth(0.35);
+  doc.roundedRect(stampX, stampY, stampWidth, stampHeight, 2, 2, "FD");
+
+  // Banda interna superior de verificación dentro del recuadro del sello
+  doc.setFillColor(236, 253, 245);
+  doc.setDrawColor(167, 243, 208);
+  doc.roundedRect(stampX + 3, stampY + 2.5, stampWidth - 6, 6.2, 1.2, 1.2, "FD");
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.2);
-  doc.setTextColor(46, 125, 50); // Verde Esperanza
-  const verifiedLabel = "REGISTRO OFICIAL VERIFICADO";
-  const labelWidth = doc.getTextWidth(verifiedLabel);
-  const totalBadgeWidth = labelWidth + 4.2;
-  const badgeStartX = stampCenterX - totalBadgeWidth / 2;
-
-  // Checkmark vectorial (evita el desbordamiento de glifos Unicode en Helvetica estándar de jsPDF)
-  doc.setDrawColor(46, 125, 50);
-  doc.setLineWidth(0.55);
-  doc.line(badgeStartX, sigY - 6.8, badgeStartX + 1.0, sigY - 5.7);
-  doc.line(badgeStartX + 1.0, sigY - 5.7, badgeStartX + 2.8, sigY - 7.9);
-  doc.text(verifiedLabel, badgeStartX + 4.2, sigY - 6);
+  doc.setFontSize(6.8);
+  doc.setTextColor(22, 101, 52);
+  doc.text("REGISTRO OFICIAL VERIFICADO", stampCenterX, stampY + 6.7, { align: "center" });
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
+  doc.setFontSize(6.8);
+  doc.setTextColor(71, 85, 105);
+  const shortInst = wrapTextWithinWidth(doc, `${inst.institution_name} - Certificación Digital`, stampWidth - 6);
+  doc.text(shortInst[0] || "Casita de Tareas - Certificación Digital", stampCenterX, stampY + 13, { align: "center" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6.8);
+  doc.setTextColor(30, 64, 175);
+  doc.text(`Radicado: ${code}`, stampCenterX, stampY + 17.5, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.6);
   doc.setTextColor(100, 116, 139);
-  doc.text("Casita de Tareas • Certificación Digital", stampCenterX, sigY - 1, { align: "center" });
-  doc.text(`Radicado: ${code}`, stampCenterX, sigY + 3.5, { align: "center" });
-  doc.text("Válido conforme a la Ley 527 de 1999", stampCenterX, sigY + 8, { align: "center" });
-  doc.text("Firma y sello digital institucional", stampCenterX, sigY + 12.5, { align: "center" });
+  doc.text("Válido conforme a la Ley 527 de 1999", stampCenterX, stampY + 22, { align: "center" });
+  doc.text("Firma y sello digital institucional", stampCenterX, stampY + 26.3, { align: "center" });
 
   // Doble franja inferior decorativa
-  doc.setFillColor(229, 57, 53); // Rojo Coral
+  doc.setFillColor(229, 57, 53);
   doc.rect(margin, pageHeight - 14, contentWidth, 0.6, "F");
 
-  doc.setFillColor(30, 64, 175); // Azul Institucional
+  doc.setFillColor(30, 64, 175);
   doc.rect(margin, pageHeight - 13.4, contentWidth, 2, "F");
 
   // Leyenda de seguridad y autenticidad
@@ -337,11 +377,104 @@ function drawOfficialFooter(doc: JsPDFDoc, inst: InstitutionProfile, code: strin
   doc.setFontSize(6.8);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    "Casita de Tareas • La Alegría del Conocimiento, Enseñando con Amor • Documento oficial sin tachaduras ni enmendaduras.",
+    sanitizePdfText("Casita de Tareas · La Alegría del Conocimiento, Enseñando con Amor · Documento oficial sin tachaduras ni enmendaduras."),
     pageWidth / 2,
     pageHeight - 8,
     { align: "center" }
   );
+}
+
+// -----------------------------------------------------------------------------
+// RENDERIZADOR UNIFICADO DE CUERPO DE CERTIFICADOS Y CONSTANCIAS
+// -----------------------------------------------------------------------------
+interface UnifiedCertificateBody {
+  paragraphs: string[];
+  highlightLine?: string | null;
+  tableHead: string[];
+  tableRow: string[];
+  purposeText: string;
+  city: string;
+}
+
+function drawUnifiedCertificateBody(doc: JsPDFDoc, autoTable: typeof import("jspdf-autotable").default, startY: number, body: UnifiedCertificateBody) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 18;
+  const contentWidth = pageWidth - margin * 2;
+  const lineHeight = 5.2;
+
+  let currentY = startY;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.8);
+  doc.setTextColor(30, 41, 59);
+
+  for (const paragraph of body.paragraphs) {
+    const lines = wrapTextWithinWidth(doc, paragraph, contentWidth);
+    if (lines.length === 0) continue;
+    doc.text(lines, margin, currentY);
+    currentY += lines.length * lineHeight + 3.5;
+  }
+
+  if (body.highlightLine && body.highlightLine.trim()) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 64, 175);
+    const hlLines = wrapTextWithinWidth(doc, body.highlightLine.trim(), contentWidth);
+    doc.text(hlLines, margin, currentY);
+    currentY += hlLines.length * lineHeight + 3;
+  }
+
+  // Tabla Resumen Ejecutivo Unificada
+  const tableY = currentY + 1.5;
+  autoTable(doc, {
+    startY: tableY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    head: [body.tableHead],
+    body: [body.tableRow],
+    theme: "grid",
+    headStyles: {
+      fillColor: [30, 64, 175],
+      textColor: 255,
+      fontStyle: "bold",
+      halign: "center",
+      valign: "middle",
+      fontSize: 8.2,
+      cellPadding: 2.8,
+    },
+    bodyStyles: {
+      halign: "center",
+      valign: "middle",
+      fontStyle: "bold",
+      textColor: [15, 23, 42],
+      fontSize: 8.5,
+      cellPadding: 3.2,
+    },
+    styles: {
+      lineColor: [203, 213, 225],
+      lineWidth: 0.3,
+      overflow: "linebreak",
+    },
+  });
+
+  const finalTableY = doc.lastAutoTable?.finalY || tableY + 20;
+
+  // Propósito / Finalidad (ajustado estrictamente al margen del contenido)
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.2);
+  doc.setTextColor(71, 85, 105);
+  const purposeLines = wrapTextWithinWidth(doc, body.purposeText, contentWidth);
+  const purposeY = finalTableY + 6.5;
+  doc.text(purposeLines, margin, purposeY);
+
+  // Frase Formal de Expedición (ajustada estrictamente al margen del contenido)
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.2);
+  doc.setTextColor(71, 85, 105);
+  const issuanceSentence = getFormalDateSentence(body.city);
+  const issuanceLines = wrapTextWithinWidth(doc, issuanceSentence, contentWidth);
+  const issuanceY = purposeY + purposeLines.length * 4.8 + 3.5;
+  doc.text(issuanceLines, margin, issuanceY);
 }
 
 // -----------------------------------------------------------------------------
@@ -365,13 +498,8 @@ export async function generateChildAttendanceCertificate(params: ChildCertParams
   const inst = params.institution || DEFAULT_INSTITUTION;
   const logoBase64 = await getLogoBase64();
 
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 18;
-  const contentWidth = pageWidth - margin * 2;
-
   const code = `CONST-ASIS-${new Date().getFullYear()}-${params.child.child_id_code || params.child.id.slice(0, 4).toUpperCase()}`;
 
-  // Dibujar Membrete Oficial
   const startY = drawOfficialHeader(
     doc,
     inst,
@@ -380,11 +508,6 @@ export async function generateChildAttendanceCertificate(params: ChildCertParams
     "CONSTANCIA DE ASISTENCIA Y PERMANENCIA ESCOLAR",
     "HACE CONSTAR QUE:"
   );
-
-  // Redacción del Cuerpo del Documento
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 41, 59);
 
   const fullName = `${params.child.first_name} ${params.child.last_name}`.toUpperCase();
   const docType = params.child.document_type || "Registro Civil / T.I.";
@@ -400,68 +523,24 @@ export async function generateChildAttendanceCertificate(params: ChildCertParams
 
   const paragraph2 = `Durante el período comprendido entre el ${startFormatted} y el ${endFormatted}, ha registrado una asistencia regular y presencial conforme a los registros del sistema de control institucional, cumpliendo un total de ${params.totalPresentDays} días asistidos sobre ${params.totalScheduledDays} días escolares programados (${percentage}% de asistencia efectiva), destacándose por su puntualidad, dedicación y compromiso en su proceso de aprendizaje.`;
 
-  const lines1 = doc.splitTextToSize(paragraph1, contentWidth);
-  doc.text(lines1, margin, startY);
-
-  const yPos2 = startY + lines1.length * 5.5 + 4;
-  const lines2 = doc.splitTextToSize(paragraph2, contentWidth);
-  doc.text(lines2, margin, yPos2);
-
-  // Tabla Resumen Ejecutivo
-  const tableY = yPos2 + lines2.length * 5.5 + 5;
-  autoTable(doc, {
-    startY: tableY,
-    margin: { left: margin, right: margin },
-    head: [["Período Certificado", "Jornada", "Días Programados", "Días Asistidos", "Asistencia Efectiva"]],
-    body: [
-      [
-        `${params.startDate} al ${params.endDate}`,
-        params.child.shift.toUpperCase(),
-        `${params.totalScheduledDays} días`,
-        `${params.totalPresentDays} días`,
-        `${percentage}%`,
-      ],
-    ],
-    theme: "grid",
-    headStyles: {
-      fillColor: [30, 64, 175], // Azul Institucional
-      textColor: 255,
-      fontStyle: "bold",
-      halign: "center",
-      fontSize: 8.5,
-      cellPadding: 3,
-    },
-    bodyStyles: {
-      halign: "center",
-      fontStyle: "bold",
-      textColor: [15, 23, 42],
-      fontSize: 9,
-      cellPadding: 3.5,
-    },
-    styles: { lineColor: [203, 213, 225], lineWidth: 0.3 },
-  });
-
-  const finalTableY = doc.lastAutoTable?.finalY || tableY + 22;
-
-  // Propósito / Destino
   const purposeText = params.purpose && params.purpose.trim()
     ? `Finalidad: La presente constancia se expide con destino a: ${params.purpose.trim()}.`
     : "Finalidad: La presente constancia se expide a solicitud de los acudientes para los trámites escolares, familiares o administrativos que estimen convenientes.";
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(71, 85, 105);
-  const purposeLines = doc.splitTextToSize(purposeText, contentWidth);
-  const purposeY = finalTableY + 7;
-  doc.text(purposeLines, margin, purposeY);
+  drawUnifiedCertificateBody(doc, autoTable, startY, {
+    paragraphs: [paragraph1, paragraph2],
+    tableHead: ["Período Certificado", "Jornada", "Días Programados", "Días Asistidos", "Asistencia Efectiva"],
+    tableRow: [
+      `${params.startDate} al ${params.endDate}`,
+      params.child.shift.toUpperCase(),
+      `${params.totalScheduledDays} días`,
+      `${params.totalPresentDays} días`,
+      `${percentage}%`,
+    ],
+    purposeText,
+    city: inst.city,
+  });
 
-  // Frase Formal de Expedición (ajustada al ancho de página)
-  const issuanceSentence = getFormalDateSentence(inst.city);
-  const issuanceLines = doc.splitTextToSize(issuanceSentence, contentWidth);
-  const issuanceY = purposeY + purposeLines.length * 4.8 + 4;
-  doc.text(issuanceLines, margin, issuanceY);
-
-  // Dibujar Pie de Página Oficial (Firma y Sello)
   drawOfficialFooter(doc, inst, code);
 
   const filename = `Constancia_${params.child.first_name}_${params.child.last_name}_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -486,6 +565,7 @@ export interface PractitionerCertParams {
   totalHours: number;
   dailyHours: number;
   performanceNote?: string;
+  purpose?: string;
   institution?: InstitutionProfile;
 }
 
@@ -495,26 +575,16 @@ export async function generatePractitionerCertificate(params: PractitionerCertPa
   const inst = params.institution || DEFAULT_INSTITUTION;
   const logoBase64 = await getLogoBase64();
 
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 18;
-  const contentWidth = pageWidth - margin * 2;
-
   const code = `CERT-PRAC-${new Date().getFullYear()}-${params.practitioner.id.slice(0, 4).toUpperCase()}`;
 
-  // Dibujar Membrete Oficial
   const startY = drawOfficialHeader(
     doc,
     inst,
     logoBase64,
     code,
     "CERTIFICADO DE PRÁCTICAS FORMATIVAS Y CUMPLIMIENTO DE HORAS",
-    "CERTIFICA QUE:"
+    "HACE CONSTAR Y CERTIFICA QUE:"
   );
-
-  // Redacción del Cuerpo del Documento
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 41, 59);
 
   const fullName = `${params.practitioner.first_name} ${params.practitioner.last_name}`.toUpperCase();
   const docNum = params.practitioner.document || "S/I";
@@ -526,68 +596,30 @@ export async function generatePractitionerCertificate(params: PractitionerCertPa
 
   const paragraph1 = `El (la) estudiante ${fullName}, identificado(a) con Cédula de Ciudadanía No. ${docNum}, perteneciente al programa académico ${career} de la institución ${university}, desarrolló satisfactoriamente su práctica formativa en ${inst.institution_name} durante el período comprendido entre el ${startFormatted} y el ${endFormatted}.`;
 
-  const paragraph2 = `Durante el desarrollo del convenio, el(la) practicante registró asistencia regular mediante el sistema digital institucional, cumpliendo a cabalidad un total de ${params.totalHours} horas prácticas en ${params.totalDays} jornadas de atención pedagógica y acompañamiento escolar directo (intensidad acordada de ${params.dailyHours} horas/día).`;
+  const paragraph2 = `Durante el desarrollo del convenio, el (la) practicante registró asistencia regular mediante el sistema digital institucional, cumpliendo a cabalidad un total de ${params.totalHours} horas prácticas en ${params.totalDays} jornadas de atención pedagógica y acompañamiento escolar directo (intensidad acordada de ${params.dailyHours} horas/día).`;
 
   const paragraph3 = params.performanceNote && params.performanceNote.trim()
     ? `Concepto Evaluativo: ${params.performanceNote.trim()}`
     : "Concepto Institucional: Durante su permanencia demostró excelentes calidades humanas y pedagógicas, vocación docente, puntualidad, ética profesional y un alto sentido de responsabilidad con los niños y la comunidad educativa.";
 
-  const lines1 = doc.splitTextToSize(paragraph1, contentWidth);
-  doc.text(lines1, margin, startY);
+  const purposeText = params.purpose && params.purpose.trim()
+    ? `Finalidad: El presente certificado se expide con destino a: ${params.purpose.trim()}.`
+    : `Finalidad: El presente certificado se expide para acreditar el cumplimiento de horas de práctica formativa ante ${university} y demás trámites académicos pertinentes.`;
 
-  const yPos2 = startY + lines1.length * 5.5 + 4;
-  const lines2 = doc.splitTextToSize(paragraph2, contentWidth);
-  doc.text(lines2, margin, yPos2);
-
-  const yPos3 = yPos2 + lines2.length * 5.5 + 4;
-  const lines3 = doc.splitTextToSize(paragraph3, contentWidth);
-  doc.text(lines3, margin, yPos3);
-
-  // Tabla Resumen Ejecutivo
-  const tableY = yPos3 + lines3.length * 5.5 + 5;
-  autoTable(doc, {
-    startY: tableY,
-    margin: { left: margin, right: margin },
-    head: [["Universidad / Convenio", "Programa Académico", "Jornadas Cumplidas", "Horas / Día", "Total Horas Certificadas"]],
-    body: [
-      [
-        university,
-        career,
-        `${params.totalDays} jornadas`,
-        `${params.dailyHours} h/día`,
-        `${params.totalHours} HORAS`,
-      ],
+  drawUnifiedCertificateBody(doc, autoTable, startY, {
+    paragraphs: [paragraph1, paragraph2, paragraph3],
+    tableHead: ["Universidad / Convenio", "Programa Académico", "Jornadas Cumplidas", "Horas / Día", "Total Horas Certificadas"],
+    tableRow: [
+      university,
+      career,
+      `${params.totalDays} jornadas`,
+      `${params.dailyHours} h/día`,
+      `${params.totalHours} HORAS`,
     ],
-    theme: "grid",
-    headStyles: {
-      fillColor: [46, 125, 50], // Verde Esperanza para Practicantes
-      textColor: 255,
-      fontStyle: "bold",
-      halign: "center",
-      fontSize: 8.5,
-      cellPadding: 3,
-    },
-    bodyStyles: {
-      halign: "center",
-      fontStyle: "bold",
-      textColor: [15, 23, 42],
-      fontSize: 9,
-      cellPadding: 3.5,
-    },
-    styles: { lineColor: [203, 213, 225], lineWidth: 0.3 },
+    purposeText,
+    city: inst.city,
   });
 
-  const finalTableY = doc.lastAutoTable?.finalY || tableY + 22;
-
-  // Frase Formal de Expedición (ajustada al ancho de página)
-  const issuanceSentence = getFormalDateSentence(inst.city);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(71, 85, 105);
-  const issuanceLines = doc.splitTextToSize(issuanceSentence, contentWidth);
-  doc.text(issuanceLines, margin, finalTableY + 9);
-
-  // Dibujar Pie de Página Oficial (Firma y Sello)
   drawOfficialFooter(doc, inst, code);
 
   const filename = `Certificado_Practicas_${params.practitioner.first_name}_${params.practitioner.last_name}_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -619,26 +651,16 @@ export async function generateTeacherLaborCertificate(params: TeacherCertParams,
   const inst = params.institution || DEFAULT_INSTITUTION;
   const logoBase64 = await getLogoBase64();
 
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 18;
-  const contentWidth = pageWidth - margin * 2;
-
   const code = `CERT-LAB-${new Date().getFullYear()}-${params.teacher.id.slice(0, 4).toUpperCase()}`;
 
-  // Dibujar Membrete Oficial
   const startY = drawOfficialHeader(
     doc,
     inst,
     logoBase64,
     code,
-    "CERTIFICADO LABORAL Y DE ASISTENCIA DOCENTE",
-    "EL (LA) SUSCRITO(A) REPRESENTANTE LEGAL CERTIFICA QUE:"
+    "CERTIFICADO LABORAL Y DE DESEMPEÑO DOCENTE",
+    "HACE CONSTAR Y CERTIFICA QUE:"
   );
-
-  // Redacción del Cuerpo del Documento
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 41, 59);
 
   const fullName = `${params.teacher.first_name} ${params.teacher.last_name}`.toUpperCase();
   const docNum = params.teacher.document || "S/I";
@@ -656,79 +678,29 @@ export async function generateTeacherLaborCertificate(params: TeacherCertParams,
 
   const paragraph2 = `Durante su desempeño laboral, ha demostrado intachables calidades humanas y profesionales, cumplimiento cabal de sus responsabilidades pedagógicas, puntualidad, ética y alto compromiso institucional con la formación integral de los niños.`;
 
-  const lines1 = doc.splitTextToSize(paragraph1, contentWidth);
-  doc.text(lines1, margin, startY);
+  const highlightLine = params.salary && params.salary.trim()
+    ? `Asignación Salarial Mensual: ${params.salary.trim()}`
+    : null;
 
-  const yPos2 = startY + lines1.length * 5.5 + 4;
-  const lines2 = doc.splitTextToSize(paragraph2, contentWidth);
-  doc.text(lines2, margin, yPos2);
+  const purposeText = params.purpose && params.purpose.trim()
+    ? `Finalidad: La presente certificación se expide con destino a: ${params.purpose.trim()}.`
+    : "Finalidad: La presente certificación se expide a solicitud de la parte interesada para los trámites laborales, bancarios o administrativos que estime convenientes.";
 
-  // Asignación salarial (si aplica)
-  let currentY = yPos2 + lines2.length * 5.5 + 5;
-  if (params.salary && params.salary.trim()) {
-    const salaryText = `Asignación Salarial Mensual: ${params.salary.trim()}`;
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(30, 64, 175);
-    doc.text(salaryText, margin, currentY);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 41, 59);
-    currentY += 7;
-  }
-
-  // Tabla Resumen Ejecutivo
-  autoTable(doc, {
-    startY: currentY,
-    margin: { left: margin, right: margin },
-    head: [["Cargo Desempeñado", "Modalidad Contractual", "Fecha de Inicio", "Fecha de Retiro", "Estado Actual"]],
-    body: [
-      [
-        jobTitle,
-        contractType,
-        params.startDate || params.teacher.hire_date,
-        params.endDate || "En ejercicio",
-        isCurrentlyWorking ? "VINCULACIÓN ACTIVA" : "FINALIZADO",
-      ],
+  drawUnifiedCertificateBody(doc, autoTable, startY, {
+    paragraphs: [paragraph1, paragraph2],
+    highlightLine,
+    tableHead: ["Cargo Desempeñado", "Modalidad Contractual", "Fecha de Inicio", "Fecha de Retiro", "Estado Actual"],
+    tableRow: [
+      jobTitle,
+      contractType,
+      params.startDate || params.teacher.hire_date,
+      params.endDate || "En ejercicio",
+      isCurrentlyWorking ? "VINCULACIÓN ACTIVA" : "FINALIZADO",
     ],
-    theme: "grid",
-    headStyles: {
-      fillColor: [30, 64, 175], // Azul Institucional
-      textColor: 255,
-      fontStyle: "bold",
-      halign: "center",
-      fontSize: 8.5,
-      cellPadding: 3,
-    },
-    bodyStyles: {
-      halign: "center",
-      fontStyle: "bold",
-      textColor: [15, 23, 42],
-      fontSize: 9,
-      cellPadding: 3.5,
-    },
-    styles: { lineColor: [203, 213, 225], lineWidth: 0.3 },
+    purposeText,
+    city: inst.city,
   });
 
-  const finalTableY = doc.lastAutoTable?.finalY || currentY + 22;
-
-  // Propósito / Destino
-  const purposeText = params.purpose && params.purpose.trim()
-    ? `Destino: La presente certificación se expide con destino a: ${params.purpose.trim()}.`
-    : "Destino: La presente certificación se expide a solicitud de la parte interesada para los fines pertinentes que estime convenientes.";
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(71, 85, 105);
-  const purposeLines = doc.splitTextToSize(purposeText, contentWidth);
-  const purposeY = finalTableY + 7;
-  doc.text(purposeLines, margin, purposeY);
-
-  // Frase Formal de Expedición (ajustada al ancho de página)
-  const issuanceSentence = getFormalDateSentence(inst.city);
-  const issuanceLines = doc.splitTextToSize(issuanceSentence, contentWidth);
-  const issuanceY = purposeY + purposeLines.length * 4.8 + 4;
-  doc.text(issuanceLines, margin, issuanceY);
-
-  // Dibujar Pie de Página Oficial (Firma y Sello)
   drawOfficialFooter(doc, inst, code);
 
   const filename = `Certificado_Laboral_${params.teacher.first_name}_${params.teacher.last_name}_${new Date().toISOString().slice(0, 10)}.pdf`;
