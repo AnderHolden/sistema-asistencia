@@ -26,7 +26,7 @@ import {
   CalendarDaysIcon,
   CheckCircleIcon,
 } from "@heroicons/react/24/outline";
-import type { Child, Group, Teacher, Practitioner, AttendanceChild, Holiday, InstitutionProfile } from "@/types/database";
+import type { Child, Group, Teacher, Practitioner, AttendanceChild, InstitutionProfile } from "@/types/database";
 
 function CertificatesContent() {
   const searchParams = useSearchParams();
@@ -112,7 +112,7 @@ function CertificatesContent() {
           .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner)))
           .catch(() => [] as Practitioner[]),
         getDocs(collection(getFirebaseDb(), "holidays"))
-          .then((s) => s.docs.map((d) => (d.data() as Holiday).holiday_date).filter(Boolean))
+          .then((s) => s.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean))
           .catch(() => [] as string[]),
       ]);
 
