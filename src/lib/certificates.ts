@@ -159,12 +159,19 @@ function drawOfficialHeader(
 
   // 3. Texto del Membrete Oficial
   const textX = margin + logoSize + 4; // 18 + 25 + 4 = 47 mm
-  
-  // Nombre de la Institución
+
+  // Nombre de la Institución (ajuste dinámico para nombres largos)
+  const upperName = inst.institution_name.toUpperCase();
+  const maxHeaderWidth = pageWidth - margin - textX;
+  let headerFontSize = 14.5;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
+  doc.setFontSize(headerFontSize);
+  while (doc.getTextWidth(upperName) > maxHeaderWidth && headerFontSize > 10) {
+    headerFontSize -= 0.5;
+    doc.setFontSize(headerFontSize);
+  }
   doc.setTextColor(30, 64, 175); // Azul Institucional
-  doc.text(inst.institution_name.toUpperCase(), textX, 22);
+  doc.text(upperName, textX, 22);
 
   // Lema Oficial
   doc.setFont("helvetica", "bold");
@@ -288,24 +295,35 @@ function drawOfficialFooter(doc: JsPDFDoc, inst: InstitutionProfile, code: strin
   doc.text(inst.institution_name, margin, sigY + 18.5);
 
   // Sello Digital Institucional de Verificación (a la derecha)
-  const stampWidth = 65;
+  const stampWidth = 68;
   const stampX = pageWidth - margin - stampWidth;
+  const stampCenterX = stampX + stampWidth / 2;
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(203, 213, 225);
   doc.roundedRect(stampX, sigY - 12, stampWidth, 31, 2, 2, "FD");
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
+  doc.setFontSize(7.2);
   doc.setTextColor(46, 125, 50); // Verde Esperanza
-  doc.text("✓ REGISTRO OFICIAL VERIFICADO", stampX + stampWidth / 2, sigY - 6, { align: "center" });
+  const verifiedLabel = "REGISTRO OFICIAL VERIFICADO";
+  const labelWidth = doc.getTextWidth(verifiedLabel);
+  const totalBadgeWidth = labelWidth + 4.2;
+  const badgeStartX = stampCenterX - totalBadgeWidth / 2;
+
+  // Checkmark vectorial (evita el desbordamiento de glifos Unicode en Helvetica estándar de jsPDF)
+  doc.setDrawColor(46, 125, 50);
+  doc.setLineWidth(0.55);
+  doc.line(badgeStartX, sigY - 6.8, badgeStartX + 1.0, sigY - 5.7);
+  doc.line(badgeStartX + 1.0, sigY - 5.7, badgeStartX + 2.8, sigY - 7.9);
+  doc.text(verifiedLabel, badgeStartX + 4.2, sigY - 6);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(100, 116, 139);
-  doc.text("Casita de Tareas • Certificación Digital", stampX + stampWidth / 2, sigY - 1, { align: "center" });
-  doc.text(`Radicado: ${code}`, stampX + stampWidth / 2, sigY + 3.5, { align: "center" });
-  doc.text("Válido conforme a la Ley 527 de 1999", stampX + stampWidth / 2, sigY + 8, { align: "center" });
-  doc.text("Firma y sello digital institucional", stampX + stampWidth / 2, sigY + 12.5, { align: "center" });
+  doc.text("Casita de Tareas • Certificación Digital", stampCenterX, sigY - 1, { align: "center" });
+  doc.text(`Radicado: ${code}`, stampCenterX, sigY + 3.5, { align: "center" });
+  doc.text("Válido conforme a la Ley 527 de 1999", stampCenterX, sigY + 8, { align: "center" });
+  doc.text("Firma y sello digital institucional", stampCenterX, sigY + 12.5, { align: "center" });
 
   // Doble franja inferior decorativa
   doc.setFillColor(229, 57, 53); // Rojo Coral
@@ -434,11 +452,14 @@ export async function generateChildAttendanceCertificate(params: ChildCertParams
   doc.setFontSize(9.5);
   doc.setTextColor(71, 85, 105);
   const purposeLines = doc.splitTextToSize(purposeText, contentWidth);
-  doc.text(purposeLines, margin, finalTableY + 7);
+  const purposeY = finalTableY + 7;
+  doc.text(purposeLines, margin, purposeY);
 
-  // Frase Formal de Expedición
+  // Frase Formal de Expedición (ajustada al ancho de página)
   const issuanceSentence = getFormalDateSentence(inst.city);
-  doc.text(issuanceSentence, margin, finalTableY + 16);
+  const issuanceLines = doc.splitTextToSize(issuanceSentence, contentWidth);
+  const issuanceY = purposeY + purposeLines.length * 4.8 + 4;
+  doc.text(issuanceLines, margin, issuanceY);
 
   // Dibujar Pie de Página Oficial (Firma y Sello)
   drawOfficialFooter(doc, inst, code);
@@ -558,12 +579,13 @@ export async function generatePractitionerCertificate(params: PractitionerCertPa
 
   const finalTableY = doc.lastAutoTable?.finalY || tableY + 22;
 
-  // Frase Formal de Expedición
+  // Frase Formal de Expedición (ajustada al ancho de página)
   const issuanceSentence = getFormalDateSentence(inst.city);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(issuanceSentence, margin, finalTableY + 9);
+  const issuanceLines = doc.splitTextToSize(issuanceSentence, contentWidth);
+  doc.text(issuanceLines, margin, finalTableY + 9);
 
   // Dibujar Pie de Página Oficial (Firma y Sello)
   drawOfficialFooter(doc, inst, code);
@@ -697,11 +719,14 @@ export async function generateTeacherLaborCertificate(params: TeacherCertParams,
   doc.setFontSize(9.5);
   doc.setTextColor(71, 85, 105);
   const purposeLines = doc.splitTextToSize(purposeText, contentWidth);
-  doc.text(purposeLines, margin, finalTableY + 7);
+  const purposeY = finalTableY + 7;
+  doc.text(purposeLines, margin, purposeY);
 
-  // Frase Formal de Expedición
+  // Frase Formal de Expedición (ajustada al ancho de página)
   const issuanceSentence = getFormalDateSentence(inst.city);
-  doc.text(issuanceSentence, margin, finalTableY + 16);
+  const issuanceLines = doc.splitTextToSize(issuanceSentence, contentWidth);
+  const issuanceY = purposeY + purposeLines.length * 4.8 + 4;
+  doc.text(issuanceLines, margin, issuanceY);
 
   // Dibujar Pie de Página Oficial (Firma y Sello)
   drawOfficialFooter(doc, inst, code);
