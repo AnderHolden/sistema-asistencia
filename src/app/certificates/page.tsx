@@ -11,7 +11,7 @@ import {
   generatePractitionerCertificate,
   generateTeacherLaborCertificate,
 } from "@/lib/certificates";
-import { getTodayDate } from "@/lib/utils";
+import { getTodayDate, getBusinessDaysBetween } from "@/lib/utils";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "react-hot-toast";
@@ -26,7 +26,7 @@ import {
   CalendarDaysIcon,
   CheckCircleIcon,
 } from "@heroicons/react/24/outline";
-import type { Child, Group, Teacher, Practitioner, AttendanceChild, AttendanceStaff, InstitutionProfile } from "@/types/database";
+import type { Child, Group, Teacher, Practitioner, AttendanceChild, Holiday, InstitutionProfile } from "@/types/database";
 
 function CertificatesContent() {
   const searchParams = useSearchParams();
@@ -46,6 +46,7 @@ function CertificatesContent() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [teachersList, setTeachersList] = useState<Teacher[]>([]);
   const [practitionersList, setPractitionersList] = useState<Practitioner[]>([]);
+  const [customHolidays, setCustomHolidays] = useState<string[]>([]);
 
   // Selection states
   const [selectedChildId, setSelectedChildId] = useState("");
@@ -62,7 +63,8 @@ function CertificatesContent() {
   // Custom fields
   const [purpose, setPurpose] = useState("");
   const [performanceNote, setPerformanceNote] = useState("Excelente desempeño pedagógico, puntualidad, ética y vocación formativa.");
-  const [dailyHours, setDailyHours] = useState(4);
+  const [dailyHours, setDailyHours] = useState<number>(8);
+  const [customTotalHours, setCustomTotalHours] = useState<string>("");
   const [customJobTitle, setCustomJobTitle] = useState("");
   const [customContractType, setCustomContractType] = useState("Término Fijo");
   const [customSalary, setCustomSalary] = useState("");
@@ -74,17 +76,28 @@ function CertificatesContent() {
     totalDays: number;
     presentDays: number;
     absentDays: number;
+    holidaysCount: number;
+    weekdaysCount: number;
     percentage: number;
     hours: number;
-  }>({ totalDays: 0, presentDays: 0, absentDays: 0, percentage: 100, hours: 0 });
+  }>({ totalDays: 0, presentDays: 0, absentDays: 0, holidaysCount: 0, weekdaysCount: 0, percentage: 100, hours: 0 });
 
   // Modal preview
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
+  const applyPractitionerDefaults = useCallback((p: Practitioner | undefined) => {
+    if (!p) return;
+    setDailyHours(p.daily_hours && p.daily_hours > 0 ? Number(p.daily_hours) : 8);
+    setCustomTotalHours("");
+    const pStart = p.start_date || p.hire_date;
+    if (pStart) setStartDate(pStart);
+    if (p.end_date) setEndDate(p.end_date);
+  }, []);
+
   const loadInitialData = useCallback(async () => {
     try {
-      const [inst, rawKids, rawGroups, rawTeachers, rawPractitioners] = await Promise.all([
+      const [inst, rawKids, rawGroups, rawTeachers, rawPractitioners, rawHolidays] = await Promise.all([
         getInstitutionProfile().catch(() => DEFAULT_INSTITUTION),
         getDocs(collection(getFirebaseDb(), "children"))
           .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Child)))
@@ -98,9 +111,13 @@ function CertificatesContent() {
         getDocs(collection(getFirebaseDb(), "practitioners"))
           .then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner)))
           .catch(() => [] as Practitioner[]),
+        getDocs(collection(getFirebaseDb(), "holidays"))
+          .then((s) => s.docs.map((d) => (d.data() as Holiday).holiday_date).filter(Boolean))
+          .catch(() => [] as string[]),
       ]);
 
       setInstitution(inst || DEFAULT_INSTITUTION);
+      setCustomHolidays(rawHolidays);
 
       // Children list: active and sorted in JS
       const kids = rawKids
@@ -146,10 +163,14 @@ function CertificatesContent() {
       if (urlType === "practitioners" && urlId && pList.some((p: Practitioner) => p.id === urlId)) {
         setSelectedPractitionerId(urlId);
         const matched = pList.find((p: Practitioner) => p.id === urlId)!;
-        setDailyHours(matched.daily_hours || 4);
+        applyPractitionerDefaults(matched);
       } else if (pList.length > 0) {
         setSelectedPractitionerId(pList[0].id);
-        setDailyHours(pList[0].daily_hours || 4);
+        if (urlType === "practitioners") {
+          applyPractitionerDefaults(pList[0]);
+        } else {
+          setDailyHours(pList[0].daily_hours || 8);
+        }
       }
     } catch (err) {
       console.error("Error loading certificates data:", err);
@@ -157,7 +178,7 @@ function CertificatesContent() {
     } finally {
       setLoading(false);
     }
-  }, [urlType, urlId]);
+  }, [urlType, urlId, applyPractitionerDefaults]);
 
   useEffect(() => {
     loadInitialData();
@@ -177,15 +198,22 @@ function CertificatesContent() {
         return r.attendance_date >= startDate && r.attendance_date <= endDate;
       });
 
-      const present = records.filter((r) => r.status === "present").length;
-      const absent = records.filter((r) => r.status === "absent").length;
-      const total = present + absent;
+      const { businessDays, holidaysInPeriod, totalWeekdays } = getBusinessDaysBetween(startDate, endDate, customHolidays);
+      const recordedPresent = records.filter((r) => r.status === "present").length;
+      const recordedAbsent = records.filter((r) => r.status === "absent").length;
+      const recordedTotal = recordedPresent + recordedAbsent;
+
+      const total = recordedTotal > 0 ? recordedTotal : businessDays.length || 1;
+      const present = recordedTotal > 0 ? recordedPresent : businessDays.length || 1;
+      const absent = recordedTotal > 0 ? recordedAbsent : 0;
       const pct = total > 0 ? Math.round((present / total) * 100) : 100;
 
       setCalculatedStats({
-        totalDays: total || 1,
+        totalDays: total,
         presentDays: present,
         absentDays: absent,
+        holidaysCount: holidaysInPeriod.length,
+        weekdaysCount: totalWeekdays,
         percentage: pct,
         hours: present * 4,
       });
@@ -194,40 +222,37 @@ function CertificatesContent() {
     } finally {
       setCalculating(false);
     }
-  }, [selectedChildId, startDate, endDate]);
+  }, [selectedChildId, startDate, endDate, customHolidays]);
 
   const computePractitionerStats = useCallback(async () => {
     setCalculating(true);
     try {
-      const q = query(
-        collection(getFirebaseDb(), "attendance_staff"),
-        where("staff_id", "==", selectedPractitionerId)
+      const { businessDays, holidaysInPeriod, totalWeekdays } = getBusinessDaysBetween(
+        startDate,
+        endDate,
+        customHolidays
       );
-      const snap = await getDocs(q);
-      const allRecords = snap.docs.map((d) => d.data() as AttendanceStaff);
-      const records = allRecords.filter((r) => {
-        if (!r.attendance_date) return false;
-        return r.attendance_date >= startDate && r.attendance_date <= endDate;
-      });
 
-      const present = records.filter((r) => r.check_in != null && r.status !== "absent").length;
-      const absent = records.filter((r) => r.status === "absent").length;
-      const total = present + absent;
-      const totalHours = present * dailyHours;
+      const effectiveDays = businessDays.length;
+      const computedHours = Math.round(effectiveDays * dailyHours);
+      const manualHours = customTotalHours.trim() !== "" ? Number(customTotalHours) : NaN;
+      const finalHours = !Number.isNaN(manualHours) && manualHours > 0 ? Math.round(manualHours) : computedHours;
 
       setCalculatedStats({
-        totalDays: total || present,
-        presentDays: present,
-        absentDays: absent,
-        percentage: total > 0 ? Math.round((present / total) * 100) : 100,
-        hours: totalHours,
+        totalDays: effectiveDays,
+        presentDays: effectiveDays,
+        absentDays: 0,
+        holidaysCount: holidaysInPeriod.length,
+        weekdaysCount: totalWeekdays,
+        percentage: 100,
+        hours: finalHours,
       });
     } catch (err) {
       console.error("Error computing practitioner stats:", err);
     } finally {
       setCalculating(false);
     }
-  }, [selectedPractitionerId, startDate, endDate, dailyHours]);
+  }, [startDate, endDate, dailyHours, customTotalHours, customHolidays]);
 
   // Recalculate stats when selection or dates change
   useEffect(() => {
@@ -412,7 +437,10 @@ function CertificatesContent() {
 
         {/* Practicantes */}
         <button
-          onClick={() => setActiveCertType("practitioners")}
+          onClick={() => {
+            setActiveCertType("practitioners");
+            applyPractitionerDefaults(selectedPractitioner || practitionersList[0]);
+          }}
           className={`p-5 rounded-2xl text-left border transition-all relative overflow-hidden ${
             activeCertType === "practitioners"
               ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 ring-2 ring-emerald-500/20 shadow-md"
@@ -514,7 +542,7 @@ function CertificatesContent() {
                 onChange={(e) => {
                   setSelectedPractitionerId(e.target.value);
                   const p = practitionersList.find((x) => x.id === e.target.value);
-                  if (p?.daily_hours) setDailyHours(p.daily_hours);
+                  applyPractitionerDefaults(p);
                 }}
                 className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm font-semibold focus:ring-2 focus:ring-primary/20"
               >
@@ -580,21 +608,46 @@ function CertificatesContent() {
 
           {/* Campos específicos por rol */}
           {activeCertType === "practitioners" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                  Intensidad Horaria Diaria de Práctica
-                </label>
-                <select
-                  value={dailyHours}
-                  onChange={(e) => setDailyHours(Number(e.target.value))}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm font-semibold"
-                >
-                  <option value={4}>4 horas al día (Media Jornada)</option>
-                  <option value={5}>5 horas al día</option>
-                  <option value={6}>6 horas al día</option>
-                  <option value={8}>8 horas al día (Jornada Completa)</option>
-                </select>
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Intensidad Horaria Diaria de Práctica
+                  </label>
+                  <select
+                    value={dailyHours}
+                    onChange={(e) => setDailyHours(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm font-semibold"
+                  >
+                    <option value={4}>4 horas al día (Media Jornada)</option>
+                    <option value={5}>5 horas al día</option>
+                    <option value={6}>6 horas al día</option>
+                    <option value={7}>7 horas al día</option>
+                    <option value={8}>8 horas al día (Jornada Completa)</option>
+                    <option value={8.5}>8.5 horas al día (Jornada Extendida)</option>
+                    <option value={9}>9 horas al día (Jornada Extendida)</option>
+                    <option value={10}>10 horas al día (Jornada Intensiva)</option>
+                    <option value={11}>11 horas al día (Jornada Intensiva)</option>
+                    <option value={12}>12 horas al día (Jornada Especial)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Horas Totales Pactadas / Certificadas (Opcional)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={customTotalHours}
+                    onChange={(e) => setCustomTotalHours(e.target.value)}
+                    placeholder={`Automático por calendario: ${Math.round(calculatedStats.presentDays * dailyHours)} HORAS`}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm font-semibold"
+                  />
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                    Se calcula automáticamente descontando sábados, domingos y festivos de Colombia ({calculatedStats.presentDays} días hábiles × {dailyHours}h = {Math.round(calculatedStats.presentDays * dailyHours)}h).
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -746,14 +799,32 @@ function CertificatesContent() {
               <div className="space-y-2.5">
                 <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-gray-500 dark:text-gray-400">Practicante:</span>
-                  <span className="font-bold text-gray-900 dark:text-white">
+                  <span className="font-bold text-gray-900 dark:text-white text-right">
                     {selectedPractitioner ? `${selectedPractitioner.first_name} ${selectedPractitioner.last_name}` : "Ninguno"}
                   </span>
                 </div>
+                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                  <span className="text-gray-500 dark:text-gray-400">Días Lunes a Viernes:</span>
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">
+                    {calculating ? "..." : `${calculatedStats.weekdaysCount} días`}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                  <span className="text-gray-500 dark:text-gray-400">Festivos Descontados:</span>
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    {calculating ? "..." : `${calculatedStats.holidaysCount} festivo(s)`}
+                  </span>
+                </div>
                 <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">
-                  <span className="text-gray-500 dark:text-gray-400">Jornadas Asistidas:</span>
+                  <span className="text-gray-500 dark:text-gray-400">Jornadas Hábiles:</span>
                   <span className="font-bold text-gray-900 dark:text-white">
                     {calculating ? "..." : `${calculatedStats.presentDays} días`}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
+                  <span className="text-gray-500 dark:text-gray-400">Intensidad Diaria:</span>
+                  <span className="font-semibold text-primary">
+                    {dailyHours} h / día
                   </span>
                 </div>
                 <div className="flex justify-between text-sm py-2 border-b border-gray-100 dark:border-gray-800">

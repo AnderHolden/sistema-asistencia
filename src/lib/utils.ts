@@ -127,3 +127,122 @@ export function getWeekdaysBetween(startDate: string, endDate: string): string[]
   }
   return days;
 }
+
+function formatYMD(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date.getTime());
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function moveToNextMonday(date: Date): Date {
+  const day = date.getDay();
+  if (day === 1) return date;
+  const daysUntilMonday = day === 0 ? 1 : 8 - day;
+  return addDays(date, daysUntilMonday);
+}
+
+function getEasterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day, 12, 0, 0);
+}
+
+/**
+ * Retorna el conjunto de días festivos oficiales de Colombia (Ley 51 de 1983 / Ley Emiliani)
+ * para un año calendario dado en formato YYYY-MM-DD.
+ */
+export function getColombianHolidays(year: number): Set<string> {
+  const holidays = new Set<string>();
+
+  // 1. Festivos de fecha fija
+  const fixed = ["01-01", "05-01", "07-20", "08-07", "12-08", "12-25"];
+  for (const mmdd of fixed) {
+    holidays.add(`${year}-${mmdd}`);
+  }
+
+  // 2. Festivos trasladables al lunes (Ley Emiliani)
+  const emilianiDates = [
+    [1, 6],   // Reyes Magos
+    [3, 19],  // San José
+    [6, 29],  // San Pedro y San Pablo
+    [8, 15],  // Asunción de la Virgen
+    [10, 12], // Día de la Raza
+    [11, 1],  // Todos los Santos
+    [11, 11], // Independencia de Cartagena
+  ];
+  for (const [month, day] of emilianiDates) {
+    const moved = moveToNextMonday(new Date(year, month - 1, day, 12, 0, 0));
+    holidays.add(formatYMD(moved));
+  }
+
+  // 3. Festivos relativos al Domingo de Pascua
+  const easter = getEasterSunday(year);
+  holidays.add(formatYMD(addDays(easter, -3))); // Jueves Santo
+  holidays.add(formatYMD(addDays(easter, -2))); // Viernes Santo
+  holidays.add(formatYMD(moveToNextMonday(addDays(easter, 39)))); // Ascensión del Señor
+  holidays.add(formatYMD(moveToNextMonday(addDays(easter, 60)))); // Corpus Christi
+  holidays.add(formatYMD(moveToNextMonday(addDays(easter, 68)))); // Sagrado Corazón de Jesús
+
+  return holidays;
+}
+
+/**
+ * Obtiene los días hábiles reales del calendario entre startDate y endDate (inclusive),
+ * excluyendo sábados, domingos, festivos oficiales de Colombia y festivos institucionales adicionales.
+ */
+export function getBusinessDaysBetween(
+  startDate: string,
+  endDate: string,
+  extraHolidays: string[] = []
+): { businessDays: string[]; holidaysInPeriod: string[]; totalWeekdays: number } {
+  if (!startDate || !endDate || startDate > endDate) {
+    return { businessDays: [], holidaysInPeriod: [], totalWeekdays: 0 };
+  }
+
+  const startYear = Number(startDate.slice(0, 4));
+  const endYear = Number(endDate.slice(0, 4));
+  const holidaySet = new Set<string>(extraHolidays);
+
+  for (let y = startYear; y <= endYear; y++) {
+    for (const h of getColombianHolidays(y)) {
+      holidaySet.add(h);
+    }
+  }
+
+  const weekdays = getWeekdaysBetween(startDate, endDate);
+  const businessDays: string[] = [];
+  const holidaysInPeriod: string[] = [];
+
+  for (const dayStr of weekdays) {
+    if (holidaySet.has(dayStr)) {
+      holidaysInPeriod.push(dayStr);
+    } else {
+      businessDays.push(dayStr);
+    }
+  }
+
+  return {
+    businessDays,
+    holidaysInPeriod,
+    totalWeekdays: weekdays.length,
+  };
+}

@@ -581,7 +581,13 @@ export default function PractitionersPage() {
                   { value: "4", label: "4 Horas / Día (Media Jornada)" },
                   { value: "5", label: "5 Horas / Día" },
                   { value: "6", label: "6 Horas / Día" },
+                  { value: "7", label: "7 Horas / Día" },
                   { value: "8", label: "8 Horas / Día (Jornada Completa)" },
+                  { value: "8.5", label: "8.5 Horas / Día (Jornada Extendida)" },
+                  { value: "9", label: "9 Horas / Día (Jornada Extendida)" },
+                  { value: "10", label: "10 Horas / Día (Jornada Intensiva)" },
+                  { value: "11", label: "11 Horas / Día (Jornada Intensiva)" },
+                  { value: "12", label: "12 Horas / Día (Jornada Especial)" },
                 ]}
               />
             </div>
