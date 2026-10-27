@@ -28,9 +28,15 @@ export default function UsersPage() {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const snap = await getDocs(collection(getFirebaseDb(), "profiles"));
-    setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Profile)));
-    setLoading(false);
+    try {
+      const snap = await getDocs(collection(getFirebaseDb(), "profiles"));
+      setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Profile)));
+    } catch (err) {
+      console.error("Error loading users:", err);
+      toast.error("Error al cargar la lista de usuarios");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function openCreate() { setEditing(null); setForm({ email: "", password: "", display_name: "", role: "operator" }); setShowModal(true); }

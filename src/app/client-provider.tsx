@@ -14,6 +14,15 @@ export function ClientProvider({ children }: { children: React.ReactNode }) {
     const stored = localStorage.getItem("theme");
     const isDark = stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.classList.toggle("dark", isDark);
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          reg.update().catch(() => {});
+        })
+        .catch(() => {});
+    }
   }, []);
 
   return (

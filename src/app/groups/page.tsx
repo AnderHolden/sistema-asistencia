@@ -24,9 +24,15 @@ export default function GroupsPage() {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const snap = await getDocs(query(collection(getFirebaseDb(), "groups"), orderBy("name")));
-    setGroups(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
-    setLoading(false);
+    try {
+      const snap = await getDocs(query(collection(getFirebaseDb(), "groups"), orderBy("name")));
+      setGroups(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
+    } catch (err) {
+      console.error("Error loading groups:", err);
+      toast.error("Error al cargar la lista de grupos");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function openCreate() { setEditing(null); setForm({ name: "", description: "" }); setShowModal(true); }

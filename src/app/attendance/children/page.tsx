@@ -40,6 +40,7 @@ export default function ChildrenAttendancePage() {
   const [holidays, setHolidays] = useState<string[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const prevPendingRef = useRef<number>(0);
+  const autoMarkTriggeredRef = useRef<boolean>(false);
 
   const highlightChild = useCallback((childId: string) => {
     setHighlightChildId(childId);
@@ -120,14 +121,22 @@ export default function ChildrenAttendancePage() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(() => setNow(new Date()), 1000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        setNow(new Date());
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
   useEffect(() => {
     if (user && !isAdmin) {
       loadMyCorrections();
-      const interval = setInterval(loadMyCorrections, 15000);
+      const interval = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          loadMyCorrections();
+        }
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, [user, isAdmin, loadMyCorrections]);
@@ -136,7 +145,8 @@ export default function ChildrenAttendancePage() {
   const unmarked = items.filter((i) => !i.existing).length;
 
   useEffect(() => {
-    if (isAfterAutoMark && unmarked > 0 && !loading) {
+    if (isAfterAutoMark && unmarked > 0 && !loading && !autoMarkTriggeredRef.current) {
+      autoMarkTriggeredRef.current = true;
       loadData();
     }
   }, [isAfterAutoMark, unmarked, loading, loadData]);

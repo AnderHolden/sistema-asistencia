@@ -3,7 +3,7 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "./firebase";
 import type { AttendanceStaff } from "@/types/database";
-import { getTodayDate } from "./utils";
+import { getTodayDate, isWeekday } from "./utils";
 
 export async function registerSingleChildAttendance(
   childId: string,
@@ -121,10 +121,19 @@ export async function autoMarkAbsentChildren(userId: string) {
   const minutes = now.getMinutes();
   if (hour < 17 || (hour === 17 && minutes < 50)) return 0;
   const today = getTodayDate();
-  const [childrenSnap, attendanceSnap] = await Promise.all([
+  if (!isWeekday(today)) return 0;
+  if (typeof window !== "undefined" && sessionStorage.getItem(`auto_mark_children_${today}`)) {
+    return 0;
+  }
+  const [childrenSnap, attendanceSnap, holidaySnap] = await Promise.all([
     getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
     getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", "==", today))),
+    getDocs(query(collection(getFirebaseDb(), "holidays"), where("date", "==", today))),
   ]);
+  if (typeof window !== "undefined") {
+    sessionStorage.setItem(`auto_mark_children_${today}`, "done");
+  }
+  if (!holidaySnap.empty) return 0;
   const markedIds = new Set(attendanceSnap.docs.map((d) => d.data().child_id));
   const unmarked = childrenSnap.docs.filter((d) => !markedIds.has(d.id));
   if (unmarked.length === 0) return 0;
@@ -150,11 +159,20 @@ export async function autoMarkAbsentStaff(userId: string) {
   const minutes = now.getMinutes();
   if (hour < 16 || (hour === 16 && minutes < 30)) return 0;
   const today = getTodayDate();
-  const [teachersSnap, practitionersSnap, attendanceSnap] = await Promise.all([
+  if (!isWeekday(today)) return 0;
+  if (typeof window !== "undefined" && sessionStorage.getItem(`auto_mark_staff_${today}`)) {
+    return 0;
+  }
+  const [teachersSnap, practitionersSnap, attendanceSnap, holidaySnap] = await Promise.all([
     getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
     getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
     getDocs(query(collection(getFirebaseDb(), "attendance_staff"), where("attendance_date", "==", today))),
+    getDocs(query(collection(getFirebaseDb(), "holidays"), where("date", "==", today))),
   ]);
+  if (typeof window !== "undefined") {
+    sessionStorage.setItem(`auto_mark_staff_${today}`, "done");
+  }
+  if (!holidaySnap.empty) return 0;
   const markedIds = new Set(attendanceSnap.docs.map((d) => `${d.data().staff_type}-${d.data().staff_id}`));
   const unmarkedStaff: Array<{ id: string; type: "teacher" | "practitioner" }> = [];
   teachersSnap.docs.forEach((d) => { if (!markedIds.has(`teacher-${d.id}`)) unmarkedStaff.push({ id: d.id, type: "teacher" }); });

@@ -1,20 +1,14 @@
-const CACHE_NAME = "asistencia-v1";
+const CACHE_NAME = "asistencia-v2";
 const STATIC_ASSETS = [
-  "/",
-  "/login",
-  "/dashboard",
-  "/children",
-  "/groups",
-  "/teachers",
-  "/practitioners",
-  "/attendance/children",
-  "/attendance/staff",
-  "/reports",
+  "/manifest.json",
+  "/logo.png",
+  "/icons/icon-192.svg",
+  "/icons/icon-512.svg",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).catch(() => {})
   );
   self.skipWaiting();
 });
@@ -31,17 +25,27 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  const url = new URL(event.request.url);
+
+  // Ignorar orígenes externos (Firebase, Google APIs, extensiones) y rutas dinámicas de API o RSC
+  if (
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith("/api/") ||
+    url.searchParams.has("_rsc")
+  ) {
+    return;
+  }
+
+  // Estrategia Network-First: intentar red primero y usar caché solo si no hay conexión
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetched = fetch(event.request).then((response) => {
-        if (response && response.status === 200) {
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === "basic") {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return response;
-      }).catch(() => cached);
-
-      return cached || fetched;
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });

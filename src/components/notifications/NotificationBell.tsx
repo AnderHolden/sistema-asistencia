@@ -97,7 +97,11 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
 
   useEffect(() => {
     loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadNotifications();
+      }
+    }, 60000);
     return () => clearInterval(interval);
   }, [loadNotifications]);
 

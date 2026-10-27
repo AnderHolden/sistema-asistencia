@@ -41,6 +41,7 @@ export default function StaffAttendancePage() {
   const [roleFilter, setRoleFilter] = useState<"all" | "teacher" | "practitioner">("all");
   const [holidays, setHolidays] = useState<string[]>([]);
   const prevPendingRef = useRef<number>(0);
+  const autoMarkTriggeredRef = useRef<boolean>(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -105,14 +106,22 @@ export default function StaffAttendancePage() {
 
   useEffect(() => {
     loadData();
-    const i = setInterval(() => setNow(new Date()), 1000);
+    const i = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        setNow(new Date());
+      }
+    }, 30000);
     return () => clearInterval(i);
   }, [loadData]);
 
   useEffect(() => {
     if (user && !isAdmin) {
       loadMyCorrections();
-      const interval = setInterval(loadMyCorrections, 15000);
+      const interval = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          loadMyCorrections();
+        }
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, [user, isAdmin, loadMyCorrections]);
@@ -121,7 +130,8 @@ export default function StaffAttendancePage() {
   const unmarked = items.filter((i) => !i.attendance).length;
 
   useEffect(() => {
-    if (isAfterAutoMark && unmarked > 0 && !loading) {
+    if (isAfterAutoMark && unmarked > 0 && !loading && !autoMarkTriggeredRef.current) {
+      autoMarkTriggeredRef.current = true;
       loadData();
     }
   }, [isAfterAutoMark, unmarked, loading, loadData]);

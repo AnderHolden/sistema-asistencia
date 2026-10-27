@@ -44,55 +44,87 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   const loadDashboard = useCallback(async () => {
-    const now = new Date();
-    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const start = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, "0")}-01`;
-    const { end } = getMonthRange();
+    try {
+      // Mostrar datos en caché de sesión inmediatamente si existen para carga instantánea
+      if (typeof window !== "undefined") {
+        const cached = sessionStorage.getItem("dashboard_cache_v1");
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (parsed.timestamp && Date.now() - parsed.timestamp < 120000) {
+              setStats(parsed.stats);
+              setMonthly(parsed.monthly);
+              setLoading(false);
+              return;
+            }
+          } catch {
+            /* ignore invalid cache */
+          }
+        }
+      }
 
-    const [childrenSnap, teachersSnap, practitionersSnap, attendanceSnap, staffAttendanceSnap] = await Promise.all([
-      getDocs(collection(getFirebaseDb(), "children")),
-      getDocs(collection(getFirebaseDb(), "teachers")),
-      getDocs(collection(getFirebaseDb(), "practitioners")),
-      getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", ">=", start), where("attendance_date", "<", end))),
-      getDocs(query(collection(getFirebaseDb(), "attendance_staff"), where("attendance_date", ">=", start), where("attendance_date", "<", end))),
-    ]);
+      const now = new Date();
+      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      const start = `${threeMonthsAgo.getFullYear()}-${String(threeMonthsAgo.getMonth() + 1).padStart(2, "0")}-01`;
+      const { end } = getMonthRange();
+      const db = getFirebaseDb();
 
-    const allChildren = attendanceSnap.docs.map((d) => d.data() as { attendance_date: string; status: string });
-    const allStaff = staffAttendanceSnap.docs.map((d) => d.data() as { attendance_date: string; status: string; check_in: string | null });
+      const [childrenSnap, teachersSnap, practitionersSnap, attendanceSnap, staffAttendanceSnap] = await Promise.all([
+        getDocs(collection(db, "children")).catch(() => null),
+        getDocs(collection(db, "teachers")).catch(() => null),
+        getDocs(collection(db, "practitioners")).catch(() => null),
+        getDocs(query(collection(db, "attendance_children"), where("attendance_date", ">=", start), where("attendance_date", "<", end))).catch(() => null),
+        getDocs(query(collection(db, "attendance_staff"), where("attendance_date", ">=", start), where("attendance_date", "<", end))).catch(() => null),
+      ]);
 
-    const thisMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-    const childPresent = allChildren.filter((d) => d.attendance_date >= thisMonthStart && d.status === "present").length;
-    const childAbsent = allChildren.filter((d) => d.attendance_date >= thisMonthStart && d.status === "absent").length;
-    const staffPresent = allStaff.filter((d) => d.attendance_date >= thisMonthStart && d.check_in && d.status !== "absent").length;
-    const staffAbsent = allStaff.filter((d) => d.attendance_date >= thisMonthStart && d.status === "absent" && !d.check_in).length;
+      const allChildren = attendanceSnap ? attendanceSnap.docs.map((d) => d.data() as { attendance_date: string; status: string }) : [];
+      const allStaff = staffAttendanceSnap ? staffAttendanceSnap.docs.map((d) => d.data() as { attendance_date: string; status: string; check_in: string | null }) : [];
 
-    const allDates = [...allChildren.map((d) => d.attendance_date), ...allStaff.map((d) => d.attendance_date)].sort().reverse();
-    const lastAtt = allDates.length > 0 ? allDates[0] : "";
+      const thisMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const childPresent = allChildren.filter((d) => d.attendance_date >= thisMonthStart && d.status === "present").length;
+      const childAbsent = allChildren.filter((d) => d.attendance_date >= thisMonthStart && d.status === "absent").length;
+      const staffPresent = allStaff.filter((d) => d.attendance_date >= thisMonthStart && d.check_in && d.status !== "absent").length;
+      const staffAbsent = allStaff.filter((d) => d.attendance_date >= thisMonthStart && d.status === "absent" && !d.check_in).length;
 
-    setStats({
-      totalChildren: childrenSnap.size,
-      totalTeachers: teachersSnap.size,
-      totalPractitioners: practitionersSnap.size,
-      monthPresent: childPresent + staffPresent,
-      monthAbsent: childAbsent + staffAbsent,
-      lastAttendance: lastAtt,
-    });
+      const allDates = [...allChildren.map((d) => d.attendance_date), ...allStaff.map((d) => d.attendance_date)].sort().reverse();
+      const lastAtt = allDates.length > 0 ? allDates[0] : "";
 
-    const monthlyData: MonthlyData[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const year = d.getFullYear(); const month = d.getMonth() + 1;
-      const sDate = `${year}-${String(month).padStart(2, "0")}-01`;
-      const endMonth = month === 12 ? 1 : month + 1; const endYear = month === 12 ? year + 1 : year;
-      const eDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
-      const childMonth = allChildren.filter((a) => a.attendance_date >= sDate && a.attendance_date < eDate);
-      const staffMonth = allStaff.filter((a) => a.attendance_date >= sDate && a.attendance_date < eDate);
-      const present = childMonth.filter((a) => a.status === "present").length + staffMonth.filter((a) => a.check_in && a.status !== "absent").length;
-      const absent = childMonth.filter((a) => a.status === "absent").length + staffMonth.filter((a) => a.status === "absent" && !a.check_in).length;
-      monthlyData.push({ month: getMonthName(d.getMonth()), presentes: present, ausentes: absent });
+      const computedStats: Stats = {
+        totalChildren: childrenSnap ? childrenSnap.size : 0,
+        totalTeachers: teachersSnap ? teachersSnap.size : 0,
+        totalPractitioners: practitionersSnap ? practitionersSnap.size : 0,
+        monthPresent: childPresent + staffPresent,
+        monthAbsent: childAbsent + staffAbsent,
+        lastAttendance: lastAtt,
+      };
+      setStats(computedStats);
+
+      const monthlyData: MonthlyData[] = [];
+      for (let i = 2; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const year = d.getFullYear(); const month = d.getMonth() + 1;
+        const sDate = `${year}-${String(month).padStart(2, "0")}-01`;
+        const endMonth = month === 12 ? 1 : month + 1; const endYear = month === 12 ? year + 1 : year;
+        const eDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
+        const childMonth = allChildren.filter((a) => a.attendance_date >= sDate && a.attendance_date < eDate);
+        const staffMonth = allStaff.filter((a) => a.attendance_date >= sDate && a.attendance_date < eDate);
+        const present = childMonth.filter((a) => a.status === "present").length + staffMonth.filter((a) => a.check_in && a.status !== "absent").length;
+        const absent = childMonth.filter((a) => a.status === "absent").length + staffMonth.filter((a) => a.status === "absent" && !a.check_in).length;
+        monthlyData.push({ month: getMonthName(d.getMonth()), presentes: present, ausentes: absent });
+      }
+      setMonthly(monthlyData);
+
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(
+          "dashboard_cache_v1",
+          JSON.stringify({ timestamp: Date.now(), stats: computedStats, monthly: monthlyData })
+        );
+      }
+    } catch (err) {
+      console.error("Error loading dashboard:", err);
+    } finally {
+      setLoading(false);
     }
-    setMonthly(monthlyData);
-    setLoading(false);
   }, []);
 
   useEffect(() => {

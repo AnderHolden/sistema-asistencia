@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseDb } from "./firebase";
 import type { Profile } from "@/types/database";
 
@@ -20,52 +20,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(uid: string) {
+  function buildFallbackProfile(uid: string, firebaseUser: User | null): Profile {
+    const email = firebaseUser?.email || "";
+    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.trim().toLowerCase();
+    const isAdmin = Boolean(adminEmail && email.toLowerCase() === adminEmail);
+    return {
+      id: uid,
+      email,
+      display_name: firebaseUser?.displayName || email?.split("@")[0] || "Usuario",
+      role: isAdmin ? "super_admin" : "operator",
+      avatar_url: firebaseUser?.photoURL || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  async function loadProfile(uid: string, firebaseUser: User) {
     try {
-      console.log("[Auth] Loading profile for:", uid);
       const docRef = doc(getFirebaseDb(), "profiles", uid);
-      const docSnap = await getDoc(docRef);
-      console.log("[Auth] Profile exists:", docSnap.exists());
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+      const docSnap = await Promise.race([getDoc(docRef), timeoutPromise]);
+
+      if (!docSnap) {
+        console.warn("[Auth] Timeout loading profile from Firestore, using fallback/cached profile");
+        setProfile((prev) => prev || buildFallbackProfile(uid, firebaseUser));
+        return;
+      }
+
       if (docSnap.exists()) {
         const data = docSnap.data() as Omit<Profile, "id">;
-        setProfile({ id: docSnap.id, ...data, role: data.role || "operator" } as Profile);
-      } else {
-        // Create profile for new user with default operator role
-        console.log("[Auth] Creating new profile for:", uid);
-        const currentUser = getFirebaseAuth().currentUser;
-        const email = currentUser?.email || "";
-        
-        let isFirstUser = false;
-        try {
-          const profilesSnap = await getDocs(collection(getFirebaseDb(), "profiles"));
-          isFirstUser = profilesSnap.empty;
-        } catch (readErr) {
-          // If security rules prevent standard users from reading all profiles,
-          // safely default to operator role without crashing.
-          console.warn("[Auth] Could not check profiles collection, defaulting to operator:", readErr);
-          isFirstUser = false;
+        const loadedProfile: Profile = { id: docSnap.id, ...data, role: data.role || "operator" } as Profile;
+        setProfile(loadedProfile);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`cached_profile_${uid}`, JSON.stringify(loadedProfile));
         }
-
-        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL?.trim().toLowerCase();
-        const isAdmin = (adminEmail && email.toLowerCase() === adminEmail) || isFirstUser;
-
-        const newProfile = {
-          email,
-          display_name: currentUser?.displayName || email?.split("@")[0] || "Usuario",
-          role: isAdmin ? ("super_admin" as const) : ("operator" as const),
-          avatar_url: currentUser?.photoURL || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        console.log("[Auth] Creating profile:", newProfile);
-        await setDoc(docRef, newProfile);
-        console.log("[Auth] Profile created successfully");
-        setProfile({ id: uid, ...newProfile });
+      } else {
+        const fallback = buildFallbackProfile(uid, firebaseUser);
+        const { id: _unusedId, ...profileData } = fallback;
+        void _unusedId;
+        await setDoc(docRef, profileData).catch((e) => console.warn("[Auth] Could not save new profile:", e));
+        setProfile(fallback);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`cached_profile_${uid}`, JSON.stringify(fallback));
+        }
       }
     } catch (err) {
       console.error("Error loading profile:", err);
-      setProfile(null);
+      setProfile((prev) => prev || buildFallbackProfile(uid, firebaseUser));
     }
   }
 
@@ -74,18 +75,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(firebaseUser);
       if (firebaseUser) {
         document.cookie = "auth-session=true; path=/; max-age=2592000; SameSite=Lax";
-        await loadProfile(firebaseUser.uid);
+        // Cargar perfil instantáneamente desde caché local si existe para no bloquear la interfaz
+        let hasCached = false;
+        if (typeof window !== "undefined") {
+          const cachedRaw = localStorage.getItem(`cached_profile_${firebaseUser.uid}`);
+          if (cachedRaw) {
+            try {
+              const cachedProfile = JSON.parse(cachedRaw) as Profile;
+              if (cachedProfile && cachedProfile.id === firebaseUser.uid) {
+                setProfile(cachedProfile);
+                setLoading(false);
+                hasCached = true;
+              }
+            } catch {
+              /* ignore invalid cache */
+            }
+          }
+        }
+        if (hasCached) {
+          // Actualizar en segundo plano sin bloquear la pantalla
+          loadProfile(firebaseUser.uid, firebaseUser);
+        } else {
+          await loadProfile(firebaseUser.uid, firebaseUser);
+          setLoading(false);
+        }
       } else {
         document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
   function signOut() {
     document.cookie = "auth-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+    if (typeof window !== "undefined" && user) {
+      localStorage.removeItem(`cached_profile_${user.uid}`);
+      sessionStorage.removeItem("dashboard_cache_v1");
+    }
     import("firebase/auth").then(({ signOut: fbSignOut }) => {
       fbSignOut(getFirebaseAuth()).then(() => { window.location.href = "/login"; });
     });
