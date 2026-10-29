@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
@@ -57,10 +57,10 @@ interface SpecificRow {
   statusLabel: string;
   checkIn: string | null;
   signatureUrl: string | null;
-  totalPresent?: number;
-  totalAbsent?: number;
-  totalBusinessDays?: number;
-  percentage?: number;
+  totalPresent: number;
+  totalAbsent: number;
+  totalBusinessDays: number;
+  percentage: number;
 }
 interface PersonDayRow {
   date: string;
@@ -81,46 +81,94 @@ interface PersonOption {
   type: "child" | "teacher" | "practitioner";
 }
 
+function buildBusinessDaysRows(
+  businessDays: string[],
+  rawAtt: Array<Record<string, unknown>>,
+  isChild: boolean
+): PersonDayRow[] {
+  const attMap = new Map<string, Record<string, unknown>>();
+  for (const rec of rawAtt) {
+    const dStr = rec.attendance_date as string;
+    if (dStr) attMap.set(dStr, rec);
+  }
+
+  return businessDays
+    .map((dateStr) => {
+      const rec = attMap.get(dateStr);
+      const date = new Date(dateStr + "T12:00:00");
+      const isPresent = rec
+        ? isChild
+          ? (rec.status as string) === "present"
+          : (rec.status as string) !== "absent" || Boolean(rec.check_in)
+        : false;
+
+      return {
+        date: dateStr,
+        dateFormatted: date.toLocaleDateString("es-CO", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }),
+        dayName: date.toLocaleDateString("es-CO", { weekday: "long" }),
+        status: (isPresent ? "present" : "absent") as "present" | "absent",
+        statusLabel: isPresent ? "Asistió" : "No asistió",
+        checkIn: isPresent && (rec?.check_in as string) ? formatTime(rec?.check_in as string) : null,
+        signatureUrl: (rec?.signature_url as string) || null,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export default function ReportsPage() {
   const { user, profile } = useAuth();
-  const [reportData, setReportData] = useState<ReportRow[]>([]);
-  const [staffReportData, setStaffReportData] = useState<StaffReportRow[]>([]);
-  const [childrenMonthlyData, setChildrenMonthlyData] = useState<{ month: string; presentes: number; ausentes: number }[]>([]);
-  const [staffMonthlyData, setStaffMonthlyData] = useState<{ month: string; presentes: number; ausentes: number }[]>([]);
-  const [filter, setFilter] = useState<"day" | "week" | "month" | "year" | "custom">("month");
   const today = getTodayDate();
   const firstDayOfMonth = `${today.slice(0, 7)}-01`;
-  const [customStartDate, setCustomStartDate] = useState(firstDayOfMonth);
-  const [customEndDate, setCustomEndDate] = useState(today);
+
+  // Catálogos base cargados una sola vez al montar la vista
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [sectionLoading, setSectionLoading] = useState(false);
+
+  const [catalogChildren, setCatalogChildren] = useState<Child[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [catalogTeachers, setCatalogTeachers] = useState<Teacher[]>([]);
+  const [catalogPractitioners, setCatalogPractitioners] = useState<Practitioner[]>([]);
+  const [customHolidays, setCustomHolidays] = useState<string[]>([]);
+
+  // Navegación general de reportes
+  const [reportTab, setReportTab] = useState<"children" | "staff">("children");
+  const [reportType, setReportType] = useState<"aggregate" | "specific" | "person">("aggregate");
   const [groupId, setGroupId] = useState("all");
   const [tableSearch, setTableSearch] = useState("");
-  const [reportTab, setReportTab] = useState<"children" | "staff">("children");
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [customHolidays, setCustomHolidays] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  const [reportType, setReportType] = useState<"aggregate" | "specific" | "person">("aggregate");
+  // Estados "Consolidado" (aggregate)
+  const [filter, setFilter] = useState<"day" | "week" | "month" | "year" | "custom">("month");
+  const [customStartDate, setCustomStartDate] = useState(firstDayOfMonth);
+  const [customEndDate, setCustomEndDate] = useState(today);
+  const [aggChildAtt, setAggChildAtt] = useState<AttendanceChild[]>([]);
+  const [aggStaffAtt, setAggStaffAtt] = useState<AttendanceStaff[]>([]);
+  const [aggPeriodRange, setAggPeriodRange] = useState<{ startDate: string; endDate: string }>({
+    startDate: firstDayOfMonth,
+    endDate: today,
+  });
 
-  // Estados para "Por Fecha" (Con filtro Desde - Hasta y selección de Niño/Persona)
+  // Estados "Por Fecha" (specific): Rango Desde - Hasta + Selección de Niño/Persona
   const [specificStartDate, setSpecificStartDate] = useState(firstDayOfMonth);
   const [specificEndDate, setSpecificEndDate] = useState(today);
   const [specificPersonId, setSpecificPersonId] = useState<string>("");
   const [specificPersonSearch, setSpecificPersonSearch] = useState("");
   const [specificPersonDropdownOpen, setSpecificPersonDropdownOpen] = useState(false);
-  const [specificData, setSpecificData] = useState<SpecificRow[]>([]);
-  const [specificPersonDays, setSpecificPersonDays] = useState<PersonDayRow[]>([]);
-  const [specificHolidaysCount, setSpecificHolidaysCount] = useState(0);
+  const [specificAttChild, setSpecificAttChild] = useState<AttendanceChild[]>([]);
+  const [specificAttStaff, setSpecificAttStaff] = useState<AttendanceStaff[]>([]);
 
-  // Estados para "Por Persona" (También con soporte Desde - Hasta)
+  // Estados "Por Persona" (person): Buscador + Rango Desde - Hasta
   const [personSearch, setPersonSearch] = useState("");
   const [personDropdownOpen, setPersonDropdownOpen] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [selectedPersonName, setSelectedPersonName] = useState("");
   const [personStartDate, setPersonStartDate] = useState(firstDayOfMonth);
   const [personEndDate, setPersonEndDate] = useState(today);
-  const [personHistory, setPersonHistory] = useState<PersonDayRow[]>([]);
-  const [personHolidaysCount, setPersonHolidaysCount] = useState(0);
-  const [allPeople, setAllPeople] = useState<PersonOption[]>([]);
+  const [personRawAtt, setPersonRawAtt] = useState<Array<Record<string, unknown>>>([]);
 
   const generatedByName = useMemo(() => {
     return profile?.display_name || user?.displayName || user?.email?.split("@")[0] || "Usuario";
@@ -132,523 +180,532 @@ export default function ReportsPage() {
     return "Usuario Autorizado";
   }, [profile]);
 
-  const loadAllPeople = useCallback(async () => {
-    try {
-      const [childrenSnap, groupsSnap, teachersSnap, practitionersSnap, holidaysSnap] = await Promise.all([
-        getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
-        getDocs(collection(getFirebaseDb(), "groups")),
-        getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
-        getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
-        getDocs(collection(getFirebaseDb(), "holidays")).catch(() => null),
-      ]);
-      const groupsList = groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group));
-      setGroups(groupsList);
-      if (holidaysSnap) {
-        const hList = holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean);
-        setCustomHolidays(hList);
-      }
-      const children = childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
-      const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
-      const practitioners = practitionersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
+  // 1. Cargar catálogos estáticos UNA sola vez al entrar a Reportes
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCatalogs() {
+      setInitialLoading(true);
+      try {
+        const db = getFirebaseDb();
+        const [childrenSnap, groupsSnap, teachersSnap, practitionersSnap, holidaysSnap] = await Promise.all([
+          getDocs(query(collection(db, "children"), where("status", "==", "active"))).catch(() => null),
+          getDocs(collection(db, "groups")).catch(() => null),
+          getDocs(query(collection(db, "teachers"), where("status", "==", "active"))).catch(() => null),
+          getDocs(query(collection(db, "practitioners"), where("status", "==", "active"))).catch(() => null),
+          getDocs(collection(db, "holidays")).catch(() => null),
+        ]);
 
-      const people: PersonOption[] = [
-        ...children
-          .map((c) => {
-            const gName = groupsList.find((g) => g.id === c.group_id)?.name || "Sin grupo";
-            return {
-              id: c.id,
-              code: c.child_id_code || "",
-              name: `${c.first_name} ${c.last_name}`,
-              groupId: c.group_id,
-              groupOrRole: gName,
-              subtitle: `${c.child_id_code ? `${c.child_id_code} · ` : ""}${gName}`,
-              type: "child" as const,
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        ...teachers
-          .map((t) => ({
-            id: t.id,
-            code: t.document || "",
-            name: `${t.first_name} ${t.last_name}`,
-            groupId: null,
-            groupOrRole: "Profesor",
-            subtitle: `Profesor · ${t.document || ""}`,
-            type: "teacher" as const,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        ...practitioners
-          .map((p) => ({
-            id: p.id,
-            code: p.document || "",
-            name: `${p.first_name} ${p.last_name}`,
-            groupId: null,
-            groupOrRole: "Practicante",
-            subtitle: `Practicante · ${p.document || ""}`,
-            type: "practitioner" as const,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      ];
-      setAllPeople(people);
-    } catch (err) {
-      console.error("Error cargando listado de personas:", err);
+        if (cancelled) return;
+
+        if (groupsSnap) {
+          setGroups(groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group)));
+        }
+        if (childrenSnap) {
+          setCatalogChildren(childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child)));
+        }
+        if (teachersSnap) {
+          setCatalogTeachers(teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher)));
+        }
+        if (practitionersSnap) {
+          setCatalogPractitioners(practitionersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner)));
+        }
+        if (holidaysSnap) {
+          setCustomHolidays(
+            holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean)
+          );
+        }
+      } catch (err) {
+        console.error("Error cargando catálogos de reportes:", err);
+        toast.error("Error al cargar datos iniciales");
+      } finally {
+        if (!cancelled) {
+          setCatalogLoaded(true);
+          setInitialLoading(false);
+        }
+      }
     }
+    loadCatalogs();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const buildPersonBusinessDaysRows = useCallback(
-    (
-      businessDays: string[],
-      rawAtt: Array<Record<string, unknown>>,
-      isChild: boolean
-    ): PersonDayRow[] => {
-      const attMap = new Map<string, Record<string, unknown>>();
-      for (const rec of rawAtt) {
-        const dStr = rec.attendance_date as string;
-        if (dStr) attMap.set(dStr, rec);
-      }
-
-      return businessDays
-        .map((dateStr) => {
-          const rec = attMap.get(dateStr);
-          const date = new Date(dateStr + "T12:00:00");
-          const isPresent = rec
-            ? isChild
-              ? (rec.status as string) === "present"
-              : (rec.status as string) !== "absent" || Boolean(rec.check_in)
-            : false;
-
+  // Lista unificada de personas derivada en memoria (0 llamadas extra)
+  const allPeople = useMemo<PersonOption[]>(() => {
+    return [
+      ...catalogChildren
+        .map((c) => {
+          const gName = groups.find((g) => g.id === c.group_id)?.name || "Sin grupo";
           return {
-            date: dateStr,
-            dateFormatted: date.toLocaleDateString("es-CO", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            }),
-            dayName: date.toLocaleDateString("es-CO", { weekday: "long" }),
-            status: (isPresent ? "present" : "absent") as "present" | "absent",
-            statusLabel: isPresent ? "Asistió" : "No asistió",
-            checkIn: isPresent && (rec?.check_in as string) ? formatTime(rec?.check_in as string) : null,
-            signatureUrl: (rec?.signature_url as string) || null,
+            id: c.id,
+            code: c.child_id_code || "",
+            name: `${c.first_name} ${c.last_name}`,
+            groupId: c.group_id,
+            groupOrRole: gName,
+            subtitle: `${c.child_id_code ? `${c.child_id_code} · ` : ""}${gName}`,
+            type: "child" as const,
           };
         })
-        .sort((a, b) => a.date.localeCompare(b.date));
-    },
-    []
-  );
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      ...catalogTeachers
+        .map((t) => ({
+          id: t.id,
+          code: t.document || "",
+          name: `${t.first_name} ${t.last_name}`,
+          groupId: null,
+          groupOrRole: "Profesor",
+          subtitle: `Profesor · ${t.document || ""}`,
+          type: "teacher" as const,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      ...catalogPractitioners
+        .map((p) => ({
+          id: p.id,
+          code: p.document || "",
+          name: `${p.first_name} ${p.last_name}`,
+          groupId: null,
+          groupOrRole: "Practicante",
+          subtitle: `Practicante · ${p.document || ""}`,
+          type: "practitioner" as const,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    ];
+  }, [catalogChildren, catalogTeachers, catalogPractitioners, groups]);
 
-  const loadPersonHistory = useCallback(async () => {
-    if (!selectedPersonId) return;
-    setLoading(true);
-    try {
-      const person = allPeople.find((p) => p.id === selectedPersonId);
-      const isChild = person?.type === "child";
+  // 2. Cargar asistencias de "Consolidado" solo cuando cambie el filtro de período
+  useEffect(() => {
+    if (!catalogLoaded || reportType !== "aggregate") return;
+    let cancelled = false;
 
-      const attSnap = await getDocs(
-        query(
-          collection(getFirebaseDb(), isChild ? "attendance_children" : "attendance_staff"),
-          isChild ? where("child_id", "==", selectedPersonId) : where("staff_id", "==", selectedPersonId)
-        )
-      );
+    async function fetchAggregateAttendance() {
+      setSectionLoading(true);
+      try {
+        const now = new Date();
+        let startDate: string, endDate: string;
+        if (filter === "day") {
+          startDate = endDate = getTodayDate();
+        } else if (filter === "week") {
+          const day = now.getDay();
+          const monday = new Date(now);
+          monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+          endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, "0")}-${String(sunday.getDate()).padStart(2, "0")}`;
+        } else if (filter === "month") {
+          startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+          endDate = getTodayDate();
+        } else if (filter === "custom") {
+          startDate = customStartDate || `${now.getFullYear()}-01-01`;
+          endDate = customEndDate || getTodayDate();
+        } else {
+          startDate = `${now.getFullYear()}-01-01`;
+          endDate = getTodayDate();
+        }
 
-      const rawAtt = attSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
-        .filter((a) => {
-          const d = a.attendance_date as string;
-          return d && d >= personStartDate && d <= personEndDate;
-        });
+        const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        const sixMonthsStart = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, "0")}-01`;
+        const queryStart = startDate < sixMonthsStart ? startDate : sixMonthsStart;
+        const queryEnd = endDate > getTodayDate() ? endDate : getTodayDate();
 
-      const { businessDays, holidaysInPeriod } = getBusinessDaysBetween(
-        personStartDate,
-        personEndDate,
-        customHolidays
-      );
-      setPersonHolidaysCount(holidaysInPeriod.length);
+        const db = getFirebaseDb();
+        const [attendanceSnap, staffAttendanceSnap] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "attendance_children"),
+              where("attendance_date", ">=", queryStart),
+              where("attendance_date", "<=", queryEnd)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, "attendance_staff"),
+              where("attendance_date", ">=", queryStart),
+              where("attendance_date", "<=", queryEnd)
+            )
+          ),
+        ]);
 
-      const history = buildPersonBusinessDaysRows(businessDays, rawAtt, isChild);
-      setPersonHistory(history);
-    } finally {
-      setLoading(false);
+        if (cancelled) return;
+        setAggPeriodRange({ startDate, endDate });
+        setAggChildAtt(
+          attendanceSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as AttendanceChild))
+            .filter((a) => isWeekday(a.attendance_date))
+        );
+        setAggStaffAtt(
+          staffAttendanceSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as AttendanceStaff))
+            .filter((a) => isWeekday(a.attendance_date))
+        );
+      } catch (err) {
+        console.error("Error cargando reporte consolidado:", err);
+        toast.error("No se pudo actualizar el reporte consolidado");
+      } finally {
+        if (!cancelled) setSectionLoading(false);
+      }
     }
-  }, [selectedPersonId, allPeople, personStartDate, personEndDate, customHolidays, buildPersonBusinessDaysRows]);
 
-  const loadReport = useCallback(async () => {
-    setLoading(true);
-    try {
-      const now = new Date();
-      let startDate: string, endDate: string;
-      if (filter === "day") {
-        startDate = endDate = getTodayDate();
-      } else if (filter === "week") {
-        const day = now.getDay();
-        const monday = new Date(now);
-        monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
-        endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, "0")}-${String(sunday.getDate()).padStart(2, "0")}`;
-      } else if (filter === "month") {
-        startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-        endDate = getTodayDate();
-      } else if (filter === "custom") {
-        startDate = customStartDate || `${now.getFullYear()}-01-01`;
-        endDate = customEndDate || getTodayDate();
-      } else {
-        startDate = `${now.getFullYear()}-01-01`;
-        endDate = getTodayDate();
-      }
+    fetchAggregateAttendance();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogLoaded, reportType, filter, customStartDate, customEndDate]);
 
-      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      const sixMonthsStart = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, "0")}-01`;
-      const queryStart = startDate < sixMonthsStart ? startDate : sixMonthsStart;
-      const queryEnd = endDate > getTodayDate() ? endDate : getTodayDate();
-
-      const [childrenSnap, groupsSnap, attendanceSnap, teachersSnap, practitionersSnap, staffAttendanceSnap, holidaysSnap] = await Promise.all([
-        getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
-        getDocs(collection(getFirebaseDb(), "groups")),
-        getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", ">=", queryStart), where("attendance_date", "<=", queryEnd))),
-        getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
-        getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
-        getDocs(query(collection(getFirebaseDb(), "attendance_staff"), where("attendance_date", ">=", queryStart), where("attendance_date", "<=", queryEnd))),
-        getDocs(collection(getFirebaseDb(), "holidays")).catch(() => null),
-      ]);
-
-      const groupsList = groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group));
-      setGroups(groupsList);
-      if (holidaysSnap) {
-        const hList = holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean);
-        setCustomHolidays(hList);
-      }
-
-      const children = childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
-      const allChildAtt = attendanceSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceChild)).filter((a) => isWeekday(a.attendance_date));
-      const periodChildAtt = allChildAtt.filter((a) => a.attendance_date >= startDate && a.attendance_date <= endDate);
-      const filteredChildren = groupId === "all" ? children : children.filter((c) => c.group_id === groupId);
-
-      setReportData(
-        filteredChildren
-          .map((child) => {
-            const childAtt = periodChildAtt.filter((a) => a.child_id === child.id);
-            const present = childAtt.filter((a) => a.status === "present").length;
-            const absent = childAtt.filter((a) => a.status === "absent").length;
-            const total = present + absent;
-            return {
-              childName: `${child.first_name} ${child.last_name}`,
-              childCode: child.child_id_code || "",
-              groupName: groupsList.find((g) => g.id === child.group_id)?.name || "Sin grupo",
-              totalPresent: present,
-              totalAbsent: absent,
-              percentage: total > 0 ? Math.round((present / total) * 100) : 0,
-            };
-          })
-          .sort((a, b) => a.childName.localeCompare(b.childName))
-      );
-
-      const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
-      const practitioners = practitionersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
-      const allStaffAtt = staffAttendanceSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceStaff)).filter((a) => isWeekday(a.attendance_date));
-      const periodStaffAtt = allStaffAtt.filter((a) => a.attendance_date >= startDate && a.attendance_date <= endDate);
-      const allStaff = [
-        ...teachers.map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}`, type: "Profesor" })),
-        ...practitioners.map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`, type: "Practicante" })),
-      ];
-      setStaffReportData(
-        allStaff
-          .map((s) => {
-            const sAtt = periodStaffAtt.filter((a) => a.staff_id === s.id);
-            const present = sAtt.filter((a) => a.status !== "absent" || a.check_in).length;
-            const absent = sAtt.filter((a) => a.status === "absent" && !a.check_in).length;
-            const total = present + absent;
-            return {
-              staffName: s.name,
-              type: s.type,
-              totalPresent: present,
-              totalAbsent: absent,
-              percentage: total > 0 ? Math.round((present / total) * 100) : 0,
-            };
-          })
-          .sort((a, b) => a.staffName.localeCompare(b.staffName))
-      );
-
-      // También sincronizar lista de personas para selectores rápidos
-      const people: PersonOption[] = [
-        ...children
-          .map((c) => {
-            const gName = groupsList.find((g) => g.id === c.group_id)?.name || "Sin grupo";
-            return {
-              id: c.id,
-              code: c.child_id_code || "",
-              name: `${c.first_name} ${c.last_name}`,
-              groupId: c.group_id,
-              groupOrRole: gName,
-              subtitle: `${c.child_id_code ? `${c.child_id_code} · ` : ""}${gName}`,
-              type: "child" as const,
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        ...teachers
-          .map((t) => ({
-            id: t.id,
-            code: t.document || "",
-            name: `${t.first_name} ${t.last_name}`,
-            groupId: null,
-            groupOrRole: "Profesor",
-            subtitle: `Profesor · ${t.document || ""}`,
-            type: "teacher" as const,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        ...practitioners
-          .map((p) => ({
-            id: p.id,
-            code: p.document || "",
-            name: `${p.first_name} ${p.last_name}`,
-            groupId: null,
-            groupOrRole: "Practicante",
-            subtitle: `Practicante · ${p.document || ""}`,
-            type: "practitioner" as const,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      ];
-      setAllPeople(people);
-
-      const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-      const cMonthly: { month: string; presentes: number; ausentes: number }[] = [];
-      const sMonthly: { month: string; presentes: number; ausentes: number }[] = [];
-      const allowedChildIds = new Set(filteredChildren.map((c) => c.id));
-
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const year = d.getFullYear();
-        const month = d.getMonth() + 1;
-        const sDate = `${year}-${String(month).padStart(2, "0")}-01`;
-        const endMonth = month === 12 ? 1 : month + 1;
-        const endYear = month === 12 ? year + 1 : year;
-        const eDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
-
-        const monthChildAtt = allChildAtt.filter((a) => a.attendance_date >= sDate && a.attendance_date < eDate && allowedChildIds.has(a.child_id));
-        cMonthly.push({
-          month: monthNames[d.getMonth()],
-          presentes: monthChildAtt.filter((a) => a.status === "present").length,
-          ausentes: monthChildAtt.filter((a) => a.status === "absent").length,
-        });
-
-        const monthStaffAtt = allStaffAtt.filter((a) => a.attendance_date >= sDate && a.attendance_date < eDate);
-        sMonthly.push({
-          month: monthNames[d.getMonth()],
-          presentes: monthStaffAtt.filter((a) => a.status !== "absent" || a.check_in).length,
-          ausentes: monthStaffAtt.filter((a) => a.status === "absent" && !a.check_in).length,
-        });
-      }
-      setChildrenMonthlyData(cMonthly);
-      setStaffMonthlyData(sMonthly);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, groupId, customStartDate, customEndDate]);
-
-  const loadSpecificDateRange = useCallback(async () => {
+  // 3. Cargar asistencias de "Por Fecha" (Desde - Hasta) SIN ciclos de estado
+  useEffect(() => {
+    if (!catalogLoaded || reportType !== "specific") return;
     if (!specificStartDate || !specificEndDate || specificStartDate > specificEndDate) {
-      setSpecificData([]);
-      setSpecificPersonDays([]);
-      setLoading(false);
+      setSpecificAttChild([]);
+      setSpecificAttStaff([]);
       return;
     }
 
-    setLoading(true);
-    try {
-      const [childrenSnap, groupsSnap, attChildSnap, teachersSnap, practitionersSnap, attStaffSnap, holidaysSnap] = await Promise.all([
-        getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
-        getDocs(collection(getFirebaseDb(), "groups")),
-        getDocs(
-          query(
-            collection(getFirebaseDb(), "attendance_children"),
-            where("attendance_date", ">=", specificStartDate),
-            where("attendance_date", "<=", specificEndDate)
-          )
-        ),
-        getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
-        getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
-        getDocs(
-          query(
-            collection(getFirebaseDb(), "attendance_staff"),
-            where("attendance_date", ">=", specificStartDate),
-            where("attendance_date", "<=", specificEndDate)
-          )
-        ),
-        getDocs(collection(getFirebaseDb(), "holidays")).catch(() => null),
-      ]);
+    let cancelled = false;
+    async function fetchSpecificRangeAttendance() {
+      setSectionLoading(true);
+      try {
+        const db = getFirebaseDb();
+        const [attChildSnap, attStaffSnap] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "attendance_children"),
+              where("attendance_date", ">=", specificStartDate),
+              where("attendance_date", "<=", specificEndDate)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, "attendance_staff"),
+              where("attendance_date", ">=", specificStartDate),
+              where("attendance_date", "<=", specificEndDate)
+            )
+          ),
+        ]);
 
-      const groupsList = groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group));
-      setGroups(groupsList);
-
-      let activeHolidays = customHolidays;
-      if (holidaysSnap) {
-        activeHolidays = holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean);
-        setCustomHolidays(activeHolidays);
+        if (cancelled) return;
+        setSpecificAttChild(attChildSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceChild)));
+        setSpecificAttStaff(attStaffSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceStaff)));
+      } catch (err) {
+        console.error("Error cargando reporte por rango de fechas:", err);
+        toast.error("No se pudo consultar el rango de fechas");
+      } finally {
+        if (!cancelled) setSectionLoading(false);
       }
-
-      const { businessDays, holidaysInPeriod } = getBusinessDaysBetween(
-        specificStartDate,
-        specificEndDate,
-        activeHolidays
-      );
-      setSpecificHolidaysCount(holidaysInPeriod.length);
-      const businessDaySet = new Set(businessDays);
-
-      const children = childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
-      const attChild = attChildSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as AttendanceChild))
-        .filter((a) => businessDaySet.has(a.attendance_date));
-      const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
-      const practitioners = practitionersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
-      const attStaff = attStaffSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as AttendanceStaff))
-        .filter((a) => businessDaySet.has(a.attendance_date));
-
-      // Si hay un niño/persona seleccionado en "Por Fecha", construir su desglose día por día (Lunes a Viernes sin festivos)
-      if (specificPersonId) {
-        if (reportTab === "children") {
-          const personRecords = attChild
-            .filter((a) => a.child_id === specificPersonId)
-            .map((a) => ({ ...a } as unknown as Record<string, unknown>));
-          setSpecificPersonDays(buildPersonBusinessDaysRows(businessDays, personRecords, true));
-        } else {
-          const personRecords = attStaff
-            .filter((a) => a.staff_id === specificPersonId)
-            .map((a) => ({ ...a } as unknown as Record<string, unknown>));
-          setSpecificPersonDays(buildPersonBusinessDaysRows(businessDays, personRecords, false));
-        }
-      } else {
-        setSpecificPersonDays([]);
-      }
-
-      const isSingleDay = specificStartDate === specificEndDate;
-      const singleDateFormatted = isSingleDay
-        ? new Date(specificStartDate + "T12:00:00").toLocaleDateString("es-CO", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })
-        : `${specificStartDate} a ${specificEndDate}`;
-
-      if (reportTab === "children") {
-        const childRows: SpecificRow[] = children
-          .map((child) => {
-            const groupName = groupsList.find((g) => g.id === child.group_id)?.name || "Sin grupo";
-            const childAtt = attChild.filter((a) => a.child_id === child.id);
-            const presentCount = childAtt.filter((a) => a.status === "present").length;
-            const totalBDays = businessDays.length;
-            const absentCount = Math.max(0, totalBDays - presentCount);
-            const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
-            const singleAtt = isSingleDay ? childAtt[0] : undefined;
-
-            return {
-              id: child.id,
-              code: child.child_id_code || "",
-              name: `${child.first_name} ${child.last_name}`,
-              groupId: child.group_id,
-              groupOrType: groupName,
-              date: singleDateFormatted,
-              status: isSingleDay ? singleAtt?.status || "absent" : pct >= 50 ? "present" : "absent",
-              statusLabel: isSingleDay
-                ? singleAtt?.status === "present"
-                  ? "Asistió"
-                  : "No asistió"
-                : `${presentCount} asistió / ${absentCount} no asistió`,
-              checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
-              signatureUrl: null,
-              totalPresent: presentCount,
-              totalAbsent: absentCount,
-              totalBusinessDays: totalBDays,
-              percentage: pct,
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setSpecificData(childRows);
-      } else {
-        const staffRows: SpecificRow[] = [
-          ...teachers.map((t) => {
-            const sAtt = attStaff.filter((a) => a.staff_id === t.id && a.staff_type === "teacher");
-            const presentCount = sAtt.filter((a) => !(a.status === "absent" && !a.check_in)).length;
-            const totalBDays = businessDays.length;
-            const absentCount = Math.max(0, totalBDays - presentCount);
-            const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
-            const singleAtt = isSingleDay ? sAtt[0] : undefined;
-            const isPres = singleAtt ? !(singleAtt.status === "absent" && !singleAtt.check_in) : false;
-
-            return {
-              id: t.id,
-              code: t.document || "",
-              name: `${t.first_name} ${t.last_name}`,
-              groupId: null,
-              groupOrType: "Profesor",
-              date: singleDateFormatted,
-              status: isSingleDay ? (isPres ? "present" : "absent") : pct >= 50 ? "present" : "absent",
-              statusLabel: isSingleDay
-                ? isPres
-                  ? "Asistió"
-                  : "No asistió"
-                : `${presentCount} asistió / ${absentCount} no asistió`,
-              checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
-              signatureUrl: isSingleDay ? singleAtt?.signature_url || null : null,
-              totalPresent: presentCount,
-              totalAbsent: absentCount,
-              totalBusinessDays: totalBDays,
-              percentage: pct,
-            };
-          }),
-          ...practitioners.map((p) => {
-            const sAtt = attStaff.filter((a) => a.staff_id === p.id && a.staff_type === "practitioner");
-            const presentCount = sAtt.filter((a) => !(a.status === "absent" && !a.check_in)).length;
-            const totalBDays = businessDays.length;
-            const absentCount = Math.max(0, totalBDays - presentCount);
-            const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
-            const singleAtt = isSingleDay ? sAtt[0] : undefined;
-            const isPres = singleAtt ? !(singleAtt.status === "absent" && !singleAtt.check_in) : false;
-
-            return {
-              id: p.id,
-              code: p.document || "",
-              name: `${p.first_name} ${p.last_name}`,
-              groupId: null,
-              groupOrType: "Practicante",
-              date: singleDateFormatted,
-              status: isSingleDay ? (isPres ? "present" : "absent") : pct >= 50 ? "present" : "absent",
-              statusLabel: isSingleDay
-                ? isPres
-                  ? "Asistió"
-                  : "No asistió"
-                : `${presentCount} asistió / ${absentCount} no asistió`,
-              checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
-              signatureUrl: isSingleDay ? singleAtt?.signature_url || null : null,
-              totalPresent: presentCount,
-              totalAbsent: absentCount,
-              totalBusinessDays: totalBDays,
-              percentage: pct,
-            };
-          }),
-        ].sort((a, b) => a.name.localeCompare(b.name));
-        setSpecificData(staffRows);
-      }
-    } finally {
-      setLoading(false);
     }
-  }, [specificStartDate, specificEndDate, specificPersonId, reportTab, customHolidays, buildPersonBusinessDaysRows]);
+
+    fetchSpecificRangeAttendance();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogLoaded, reportType, specificStartDate, specificEndDate]);
+
+  // 4. Cargar asistencias en "Por Persona" solo cuando cambia la persona elegida
+  const selectedPersonObj = useMemo(
+    () => allPeople.find((p) => p.id === selectedPersonId) || null,
+    [allPeople, selectedPersonId]
+  );
+  const selectedPersonType = selectedPersonObj?.type || null;
 
   useEffect(() => {
-    loadReport();
-  }, [loadReport]);
+    if (!catalogLoaded || reportType !== "person" || !selectedPersonId || !selectedPersonType) return;
+    let cancelled = false;
 
-  useEffect(() => {
-    if (reportType === "specific") loadSpecificDateRange();
-  }, [specificStartDate, specificEndDate, specificPersonId, reportType, reportTab, loadSpecificDateRange]);
+    async function fetchPersonRecords() {
+      setSectionLoading(true);
+      try {
+        const isChild = selectedPersonType === "child";
+        const db = getFirebaseDb();
+        const attSnap = await getDocs(
+          query(
+            collection(db, isChild ? "attendance_children" : "attendance_staff"),
+            isChild ? where("child_id", "==", selectedPersonId) : where("staff_id", "==", selectedPersonId)
+          )
+        );
+        if (cancelled) return;
+        setPersonRawAtt(attSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>)));
+      } catch (err) {
+        console.error("Error cargando historial individual:", err);
+        toast.error("No se pudo cargar el historial de la persona");
+      } finally {
+        if (!cancelled) setSectionLoading(false);
+      }
+    }
 
-  useEffect(() => {
-    if (reportType === "person") loadAllPeople();
-  }, [reportType, reportTab, loadAllPeople]);
+    fetchPersonRecords();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogLoaded, reportType, selectedPersonId, selectedPersonType]);
 
-  useEffect(() => {
-    if (selectedPersonId) loadPersonHistory();
-  }, [selectedPersonId, personStartDate, personEndDate, loadPersonHistory]);
+  // Cálculos derivados en memoria para "Consolidado"
+  const { reportData, staffReportData, childrenMonthlyData, staffMonthlyData } = useMemo(() => {
+    const { startDate, endDate } = aggPeriodRange;
+    const periodChildAtt = aggChildAtt.filter(
+      (a) => a.attendance_date >= startDate && a.attendance_date <= endDate
+    );
+    const filteredChildren =
+      groupId === "all" ? catalogChildren : catalogChildren.filter((c) => c.group_id === groupId);
+
+    const rData: ReportRow[] = filteredChildren
+      .map((child) => {
+        const childAtt = periodChildAtt.filter((a) => a.child_id === child.id);
+        const present = childAtt.filter((a) => a.status === "present").length;
+        const absent = childAtt.filter((a) => a.status === "absent").length;
+        const total = present + absent;
+        return {
+          childName: `${child.first_name} ${child.last_name}`,
+          childCode: child.child_id_code || "",
+          groupName: groups.find((g) => g.id === child.group_id)?.name || "Sin grupo",
+          totalPresent: present,
+          totalAbsent: absent,
+          percentage: total > 0 ? Math.round((present / total) * 100) : 0,
+        };
+      })
+      .sort((a, b) => a.childName.localeCompare(b.childName));
+
+    const periodStaffAtt = aggStaffAtt.filter(
+      (a) => a.attendance_date >= startDate && a.attendance_date <= endDate
+    );
+    const allStaff = [
+      ...catalogTeachers.map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}`, type: "Profesor" })),
+      ...catalogPractitioners.map((p) => ({
+        id: p.id,
+        name: `${p.first_name} ${p.last_name}`,
+        type: "Practicante",
+      })),
+    ];
+
+    const sData: StaffReportRow[] = allStaff
+      .map((s) => {
+        const sAtt = periodStaffAtt.filter((a) => a.staff_id === s.id);
+        const present = sAtt.filter((a) => a.status !== "absent" || a.check_in).length;
+        const absent = sAtt.filter((a) => a.status === "absent" && !a.check_in).length;
+        const total = present + absent;
+        return {
+          staffName: s.name,
+          type: s.type,
+          totalPresent: present,
+          totalAbsent: absent,
+          percentage: total > 0 ? Math.round((present / total) * 100) : 0,
+        };
+      })
+      .sort((a, b) => a.staffName.localeCompare(b.staffName));
+
+    const now = new Date();
+    const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+    const cMonthly: { month: string; presentes: number; ausentes: number }[] = [];
+    const sMonthly: { month: string; presentes: number; ausentes: number }[] = [];
+    const allowedChildIds = new Set(filteredChildren.map((c) => c.id));
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth() + 1;
+      const sDate = `${year}-${String(month).padStart(2, "0")}-01`;
+      const endMonth = month === 12 ? 1 : month + 1;
+      const endYear = month === 12 ? year + 1 : year;
+      const eDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
+
+      const monthChildAtt = aggChildAtt.filter(
+        (a) => a.attendance_date >= sDate && a.attendance_date < eDate && allowedChildIds.has(a.child_id)
+      );
+      cMonthly.push({
+        month: monthNames[d.getMonth()],
+        presentes: monthChildAtt.filter((a) => a.status === "present").length,
+        ausentes: monthChildAtt.filter((a) => a.status === "absent").length,
+      });
+
+      const monthStaffAtt = aggStaffAtt.filter(
+        (a) => a.attendance_date >= sDate && a.attendance_date < eDate
+      );
+      sMonthly.push({
+        month: monthNames[d.getMonth()],
+        presentes: monthStaffAtt.filter((a) => a.status !== "absent" || a.check_in).length,
+        ausentes: monthStaffAtt.filter((a) => a.status === "absent" && !a.check_in).length,
+      });
+    }
+
+    return {
+      reportData: rData,
+      staffReportData: sData,
+      childrenMonthlyData: cMonthly,
+      staffMonthlyData: sMonthly,
+    };
+  }, [aggPeriodRange, aggChildAtt, aggStaffAtt, catalogChildren, catalogTeachers, catalogPractitioners, groups, groupId]);
+
+  // Cálculos derivados en memoria para "Por Fecha" (Lunes a Viernes excluyendo sábados, domingos y festivos)
+  const specificBusinessInfo = useMemo(() => {
+    return getBusinessDaysBetween(specificStartDate, specificEndDate, customHolidays);
+  }, [specificStartDate, specificEndDate, customHolidays]);
+
+  const specificHolidaysCount = specificBusinessInfo.holidaysInPeriod.length;
+  const hasBusinessDaysInSpecificRange = specificBusinessInfo.businessDays.length > 0;
+
+  const { specificData, specificPersonDays } = useMemo(() => {
+    const { businessDays } = specificBusinessInfo;
+    if (businessDays.length === 0) {
+      return { specificData: [] as SpecificRow[], specificPersonDays: [] as PersonDayRow[] };
+    }
+
+    const businessDaySet = new Set(businessDays);
+    const validChildAtt = specificAttChild.filter((a) => businessDaySet.has(a.attendance_date));
+    const validStaffAtt = specificAttStaff.filter((a) => businessDaySet.has(a.attendance_date));
+
+    let pDays: PersonDayRow[] = [];
+    if (specificPersonId) {
+      if (reportTab === "children") {
+        const personRecords = validChildAtt
+          .filter((a) => a.child_id === specificPersonId)
+          .map((a) => ({ ...a } as unknown as Record<string, unknown>));
+        pDays = buildBusinessDaysRows(businessDays, personRecords, true);
+      } else {
+        const personRecords = validStaffAtt
+          .filter((a) => a.staff_id === specificPersonId)
+          .map((a) => ({ ...a } as unknown as Record<string, unknown>));
+        pDays = buildBusinessDaysRows(businessDays, personRecords, false);
+      }
+    }
+
+    const isSingleDay = specificStartDate === specificEndDate;
+    const singleDateFormatted = isSingleDay
+      ? new Date(specificStartDate + "T12:00:00").toLocaleDateString("es-CO", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : `${specificStartDate} a ${specificEndDate}`;
+
+    if (reportTab === "children") {
+      const childRows: SpecificRow[] = catalogChildren
+        .map((child) => {
+          const groupName = groups.find((g) => g.id === child.group_id)?.name || "Sin grupo";
+          const childAtt = validChildAtt.filter((a) => a.child_id === child.id);
+          const presentCount = childAtt.filter((a) => a.status === "present").length;
+          const totalBDays = businessDays.length;
+          const absentCount = Math.max(0, totalBDays - presentCount);
+          const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
+          const singleAtt = isSingleDay ? childAtt[0] : undefined;
+
+          return {
+            id: child.id,
+            code: child.child_id_code || "",
+            name: `${child.first_name} ${child.last_name}`,
+            groupId: child.group_id,
+            groupOrType: groupName,
+            date: singleDateFormatted,
+            status: isSingleDay ? singleAtt?.status || "absent" : pct >= 50 ? "present" : "absent",
+            statusLabel: isSingleDay
+              ? singleAtt?.status === "present"
+                ? "Asistió"
+                : "No asistió"
+              : `${presentCount} asistió / ${absentCount} no asistió`,
+            checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
+            signatureUrl: null,
+            totalPresent: presentCount,
+            totalAbsent: absentCount,
+            totalBusinessDays: totalBDays,
+            percentage: pct,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { specificData: childRows, specificPersonDays: pDays };
+    } else {
+      const staffRows: SpecificRow[] = [
+        ...catalogTeachers.map((t) => {
+          const sAtt = validStaffAtt.filter((a) => a.staff_id === t.id && a.staff_type === "teacher");
+          const presentCount = sAtt.filter((a) => !(a.status === "absent" && !a.check_in)).length;
+          const totalBDays = businessDays.length;
+          const absentCount = Math.max(0, totalBDays - presentCount);
+          const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
+          const singleAtt = isSingleDay ? sAtt[0] : undefined;
+          const isPres = singleAtt ? !(singleAtt.status === "absent" && !singleAtt.check_in) : false;
+
+          return {
+            id: t.id,
+            code: t.document || "",
+            name: `${t.first_name} ${t.last_name}`,
+            groupId: null,
+            groupOrType: "Profesor",
+            date: singleDateFormatted,
+            status: isSingleDay ? (isPres ? "present" : "absent") : pct >= 50 ? "present" : "absent",
+            statusLabel: isSingleDay
+              ? isPres
+                ? "Asistió"
+                : "No asistió"
+              : `${presentCount} asistió / ${absentCount} no asistió`,
+            checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
+            signatureUrl: isSingleDay ? singleAtt?.signature_url || null : null,
+            totalPresent: presentCount,
+            totalAbsent: absentCount,
+            totalBusinessDays: totalBDays,
+            percentage: pct,
+          };
+        }),
+        ...catalogPractitioners.map((p) => {
+          const sAtt = validStaffAtt.filter((a) => a.staff_id === p.id && a.staff_type === "practitioner");
+          const presentCount = sAtt.filter((a) => !(a.status === "absent" && !a.check_in)).length;
+          const totalBDays = businessDays.length;
+          const absentCount = Math.max(0, totalBDays - presentCount);
+          const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
+          const singleAtt = isSingleDay ? sAtt[0] : undefined;
+          const isPres = singleAtt ? !(singleAtt.status === "absent" && !singleAtt.check_in) : false;
+
+          return {
+            id: p.id,
+            code: p.document || "",
+            name: `${p.first_name} ${p.last_name}`,
+            groupId: null,
+            groupOrType: "Practicante",
+            date: singleDateFormatted,
+            status: isSingleDay ? (isPres ? "present" : "absent") : pct >= 50 ? "present" : "absent",
+            statusLabel: isSingleDay
+              ? isPres
+                ? "Asistió"
+                : "No asistió"
+              : `${presentCount} asistió / ${absentCount} no asistió`,
+            checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
+            signatureUrl: isSingleDay ? singleAtt?.signature_url || null : null,
+            totalPresent: presentCount,
+            totalAbsent: absentCount,
+            totalBusinessDays: totalBDays,
+            percentage: pct,
+          };
+        }),
+      ].sort((a, b) => a.name.localeCompare(b.name));
+      return { specificData: staffRows, specificPersonDays: pDays };
+    }
+  }, [
+    specificBusinessInfo,
+    specificAttChild,
+    specificAttStaff,
+    specificPersonId,
+    reportTab,
+    specificStartDate,
+    specificEndDate,
+    catalogChildren,
+    catalogTeachers,
+    catalogPractitioners,
+    groups,
+  ]);
+
+  // Cálculos derivados en memoria para "Por Persona"
+  const { personHistory, personHolidaysCount } = useMemo(() => {
+    if (!selectedPersonId || !selectedPersonType) {
+      return { personHistory: [] as PersonDayRow[], personHolidaysCount: 0 };
+    }
+    const { businessDays, holidaysInPeriod } = getBusinessDaysBetween(
+      personStartDate,
+      personEndDate,
+      customHolidays
+    );
+    const filteredRaw = personRawAtt.filter((a) => {
+      const d = a.attendance_date as string;
+      return d && d >= personStartDate && d <= personEndDate;
+    });
+    const rows = buildBusinessDaysRows(businessDays, filteredRaw, selectedPersonType === "child");
+    return { personHistory: rows, personHolidaysCount: holidaysInPeriod.length };
+  }, [selectedPersonId, selectedPersonType, personStartDate, personEndDate, customHolidays, personRawAtt]);
 
   const peopleForCurrentTab = useMemo(() => {
     return allPeople
@@ -759,10 +816,10 @@ export default function ReportsPage() {
         [reportTab === "children" ? "Grupo" : "Cargo"]: r.groupOrType,
         "Desde": specificStartDate,
         "Hasta": specificEndDate,
-        "Días Hábiles (L-V)": r.totalBusinessDays ?? 0,
-        "Días que Asistió": r.totalPresent ?? 0,
-        "Días que No Asistió": r.totalAbsent ?? 0,
-        "% Asistencia": `${r.percentage ?? 0}%`,
+        "Días Hábiles (L-V)": r.totalBusinessDays,
+        "Días que Asistió": r.totalPresent,
+        "Días que No Asistió": r.totalAbsent,
+        "% Asistencia": `${r.percentage}%`,
       }));
     } else {
       if (reportTab === "children") {
@@ -858,14 +915,13 @@ export default function ReportsPage() {
       return;
     }
 
-    if (reportType === "person" && selectedPersonId) {
-      const person = allPeople.find((p) => p.id === selectedPersonId);
-      if (!person || personHistory.length === 0) {
+    if (reportType === "person" && selectedPersonId && selectedPersonObj) {
+      if (personHistory.length === 0) {
         toast.error("No hay datos para exportar");
         return;
       }
       await handleDownloadChildRangePDF(
-        person,
+        selectedPersonObj,
         personStartDate,
         personEndDate,
         personHistory,
@@ -913,10 +969,10 @@ export default function ReportsPage() {
             r.code || "—",
             r.name,
             r.groupOrType,
-            String(r.totalBusinessDays ?? 0),
-            String(r.totalPresent ?? 0),
-            String(r.totalAbsent ?? 0),
-            `${r.percentage ?? 0}%`,
+            String(r.totalBusinessDays),
+            String(r.totalPresent),
+            String(r.totalAbsent),
+            `${r.percentage}%`,
           ]),
           getExportFilename()
         );
@@ -979,7 +1035,6 @@ export default function ReportsPage() {
   function clearSpecificPerson() {
     setSpecificPersonId("");
     setSpecificPersonSearch("");
-    setSpecificPersonDays([]);
   }
 
   const totalPresent = filteredAggregateChildren.reduce((acc, r) => acc + r.totalPresent, 0);
@@ -996,28 +1051,16 @@ export default function ReportsPage() {
   const specificPersonPct =
     specificPersonTotal > 0 ? Math.round((specificPersonPresent / specificPersonTotal) * 100) : 0;
 
-  const specificPresent = filteredSpecificData.reduce(
-    (acc, r) => acc + (r.totalPresent ?? (r.status === "present" ? 1 : 0)),
-    0
-  );
-  const specificAbsent = filteredSpecificData.reduce(
-    (acc, r) => acc + (r.totalAbsent ?? (r.status === "absent" ? 1 : 0)),
-    0
-  );
+  const specificPresent = filteredSpecificData.reduce((acc, r) => acc + r.totalPresent, 0);
+  const specificAbsent = filteredSpecificData.reduce((acc, r) => acc + r.totalAbsent, 0);
 
   const personPresent = personHistory.filter((r) => r.status === "present").length;
   const personAbsent = personHistory.filter((r) => r.status === "absent").length;
   const personTotal = personPresent + personAbsent;
   const personPercentage = personTotal > 0 ? Math.round((personPresent / personTotal) * 100) : 0;
-  const selectedPersonObj = allPeople.find((p) => p.id === selectedPersonId) || null;
   const selectedPersonIsStaff = selectedPersonObj ? selectedPersonObj.type !== "child" : false;
 
-  const hasBusinessDaysInSpecificRange = useMemo(() => {
-    const { businessDays } = getBusinessDaysBetween(specificStartDate, specificEndDate, customHolidays);
-    return businessDays.length > 0;
-  }, [specificStartDate, specificEndDate, customHolidays]);
-
-  if (loading) return <LoadingSpinner label="Generando reportes..." />;
+  if (initialLoading) return <LoadingSpinner label="Cargando módulo de reportes..." />;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1057,13 +1100,13 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => {
             setReportTab("children");
             setSelectedPersonId(null);
             setPersonSearch("");
-            setPersonHistory([]);
+            setPersonRawAtt([]);
             clearSpecificPerson();
             setTableSearch("");
           }}
@@ -1082,7 +1125,7 @@ export default function ReportsPage() {
             setReportTab("staff");
             setSelectedPersonId(null);
             setPersonSearch("");
-            setPersonHistory([]);
+            setPersonRawAtt([]);
             clearSpecificPerson();
             setTableSearch("");
           }}
@@ -1096,7 +1139,7 @@ export default function ReportsPage() {
             <AcademicCapIcon className="w-4 h-4" /> Personal
           </span>
         </button>
-        <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
+        <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
         <button
           onClick={() => setReportType("aggregate")}
           className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
@@ -1133,6 +1176,12 @@ export default function ReportsPage() {
             <UserIcon className="w-4 h-4" /> Por Persona
           </span>
         </button>
+        {sectionLoading && (
+          <span className="ml-2 inline-flex items-center gap-2 text-xs font-semibold text-primary animate-pulse">
+            <span className="w-3.5 h-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            Consultando registros...
+          </span>
+        )}
       </div>
 
       {reportType === "aggregate" && (
@@ -1427,12 +1476,12 @@ export default function ReportsPage() {
                     type="text"
                     value={specificPersonSearch}
                     onFocus={() => setSpecificPersonDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setSpecificPersonDropdownOpen(false), 180)}
                     onChange={(e) => {
                       setSpecificPersonSearch(e.target.value);
                       setSpecificPersonDropdownOpen(true);
                       if (!e.target.value.trim()) {
                         setSpecificPersonId("");
-                        setSpecificPersonDays([]);
                       }
                     }}
                     placeholder={
@@ -1458,6 +1507,7 @@ export default function ReportsPage() {
                   <div className="absolute z-50 mt-1 w-full bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-64 overflow-y-auto">
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         clearSpecificPerson();
                         setSpecificPersonDropdownOpen(false);
@@ -1470,6 +1520,7 @@ export default function ReportsPage() {
                       <button
                         key={p.id}
                         type="button"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => selectSpecificPerson(p)}
                         className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
                       >
@@ -1736,7 +1787,7 @@ export default function ReportsPage() {
                       Resumen por {reportTab === "children" ? "Niño(a)" : "Personal"} ({specificStartDate} a {specificEndDate})
                     </h3>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Haz clic en <strong>&quot;Ver días / Descargar PDF&quot;</strong> en cualquier fila para ver el detalle día a día y descargar su PDF individual.
+                      Haz clic en <strong>&quot;Ver días / PDF&quot;</strong> en cualquier fila para ver el detalle día a día y descargar su PDF individual.
                     </p>
                   </div>
                   <div className="relative w-full sm:w-64">
@@ -1796,25 +1847,25 @@ export default function ReportsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3.5 text-center font-semibold text-gray-700 dark:text-gray-300">
-                            {r.totalBusinessDays ?? 0}
+                            {r.totalBusinessDays}
                           </td>
                           <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                            {r.totalPresent ?? 0}
+                            {r.totalPresent}
                           </td>
                           <td className="px-4 py-3.5 text-center font-bold text-red-600 dark:text-red-400">
-                            {r.totalAbsent ?? 0}
+                            {r.totalAbsent}
                           </td>
                           <td className="px-4 py-3.5 text-center">
                             <span
                               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                (r.percentage ?? 0) >= 80
+                                r.percentage >= 80
                                   ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
-                                  : (r.percentage ?? 0) >= 60
+                                  : r.percentage >= 60
                                   ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
                                   : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
                               }`}
                             >
-                              {r.percentage ?? 0}%
+                              {r.percentage}%
                             </span>
                           </td>
                           <td className="px-5 py-3.5 text-right">
@@ -1876,11 +1927,12 @@ export default function ReportsPage() {
                   aria-label="Buscar persona"
                   value={personSearch}
                   onFocus={() => setPersonDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setPersonDropdownOpen(false), 180)}
                   onChange={(e) => {
                     setPersonSearch(e.target.value);
                     setPersonDropdownOpen(true);
                     setSelectedPersonId(null);
-                    setPersonHistory([]);
+                    setPersonRawAtt([]);
                   }}
                   className="w-full px-4 py-2.5 pl-11 border border-gray-300 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                 />
@@ -1890,6 +1942,8 @@ export default function ReportsPage() {
                   {personResults.map((p) => (
                     <button
                       key={p.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => selectPerson(p)}
                       className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
                     >
