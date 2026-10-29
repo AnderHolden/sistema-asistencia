@@ -214,14 +214,63 @@ export interface PersonAttendanceRangePDFOptions {
   filename: string;
 }
 
+const FULL_WEEKDAYS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const SHORT_WEEKDAYS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const FULL_MONTHS_ES = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+const SHORT_MONTHS_ES = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+
 function formatReadableSpanishDate(dateStr: string): string {
   if (!dateStr) return "";
-  const date = new Date(dateStr + "T12:00:00");
-  return date.toLocaleDateString("es-CO", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return dateStr;
+  return `${d} de ${FULL_MONTHS_ES[m - 1]} de ${y}`;
+}
+
+function formatDayPillLabel(dateStr: string, cols: number, index: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return dateStr;
+  const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+  const dow = dateObj.getDay();
+  const dd = String(d).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  const yy = String(y).slice(2);
+
+  if (cols === 1) {
+    return `${String(index + 1).padStart(2, "0")}. ${FULL_WEEKDAYS_ES[dow]}, ${d} de ${FULL_MONTHS_ES[m - 1]} de ${y}`;
+  }
+  if (cols === 2) {
+    return `${SHORT_WEEKDAYS_ES[dow]}, ${dd} ${SHORT_MONTHS_ES[m - 1]} ${y}`;
+  }
+  if (cols === 3) {
+    return `${SHORT_WEEKDAYS_ES[dow]} ${dd}/${mm}/${yy}`;
+  }
+  return `${SHORT_WEEKDAYS_ES[dow].slice(0, 2)} ${dd}/${mm}/${yy}`;
 }
 
 export async function exportPersonAttendanceRangePDF(options: PersonAttendanceRangePDFOptions) {
@@ -239,227 +288,195 @@ export async function exportPersonAttendanceRangePDF(options: PersonAttendanceRa
     filename,
   } = options;
 
-  const [{ jsPDF, autoTable }, logoBase64] = await Promise.all([
+  const [{ jsPDF }, logoBase64] = await Promise.all([
     getPdfLibs(),
     getReportLogoBase64(),
   ]);
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageWidth = doc.internal.pageSize.getWidth();   // 210 mm
+  const pageHeight = doc.internal.pageSize.getHeight(); // 297 mm
   const margin = 14;
-  const contentWidth = pageWidth - margin * 2;
+  const contentWidth = pageWidth - margin * 2;          // 182 mm
 
-  // Ordenar cronológicamente (Desde -> Hasta) para que el reporte sea totalmente claro y secuencial
+  // Ordenar cronológicamente (Desde -> Hasta)
   const sortedRows = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  const presentRows = sortedRows.filter((r) => r.status === "present");
+  const absentRows = sortedRows.filter((r) => r.status === "absent");
   const totalDays = sortedRows.length;
-  const presentDays = sortedRows.filter((r) => r.status === "present").length;
-  const absentDays = sortedRows.filter((r) => r.status === "absent").length;
+  const presentDays = presentRows.length;
+  const absentDays = absentRows.length;
   const percentage = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
 
-  // 1. Encabezado Institucional con Logo Oficial
+  // =========================================================================
+  // 1. ENCABEZADO INSTITUCIONAL CON LOGO (y = 10mm a 31.5mm)
+  // =========================================================================
   let headerTextX = margin;
   if (logoBase64) {
     try {
-      doc.addImage(logoBase64, "PNG", margin, 11, 22, 22);
-      headerTextX = margin + 26;
+      doc.addImage(logoBase64, "PNG", margin, 10, 19, 19);
+      headerTextX = margin + 23;
     } catch {
       headerTextX = margin;
     }
   }
+  const headerMaxW = pageWidth - margin - headerTextX;
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
+  doc.setFontSize(15);
   doc.setTextColor(30, 64, 175);
-  doc.text("CASITA DE TAREAS", headerTextX, 17);
+  doc.text("CASITA DE TAREAS", headerTextX, 15.5, { maxWidth: headerMaxW });
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
+  doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
-  doc.text("SISTEMA DE GESTIÓN DE ASISTENCIA INSTITUCIONAL", headerTextX, 22.5);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(15, 23, 42);
-  doc.text("REPORTE DE DÍAS DE ASISTENCIA E INASISTENCIA POR RANGO DE FECHAS", headerTextX, 29);
-
-  // Línea separadora institucional
-  doc.setDrawColor(30, 64, 175);
-  doc.setLineWidth(0.6);
-  doc.line(margin, 35, pageWidth - margin, 35);
-
-  // 2. Ficha informativa del Niño(a) / Persona y Período Evaluado
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(203, 213, 225);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(margin, 38, contentWidth, 24, 2, 2, "FD");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`${personTypeLabel.toUpperCase()}:`, margin + 4, 44);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(15, 23, 42);
-  const fullNameWithCode = personCode ? `${personName}  (ID: ${personCode})` : personName;
-  doc.text(fullNameWithCode, margin + 4, 49.5);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text("GRUPO / NIVEL:", pageWidth - margin - 62, 44);
+  doc.text("SISTEMA DE GESTIÓN DE ASISTENCIA INSTITUCIONAL", headerTextX, 20.5, { maxWidth: headerMaxW });
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(30, 64, 175);
-  doc.text(groupOrRole || "Sin grupo", pageWidth - margin - 62, 49.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text("REPORTE DE DÍAS DE ASISTENCIA E INASISTENCIA POR FECHAS", headerTextX, 26.2, { maxWidth: headerMaxW });
+
+  doc.setDrawColor(30, 64, 175);
+  doc.setLineWidth(0.6);
+  doc.line(margin, 31.5, pageWidth - margin, 31.5);
+
+  // =========================================================================
+  // 2. RECUADRO DE DATOS DEL NIÑO(A) Y PERÍODO (100% ajustado sin salirse)
+  // =========================================================================
+  const boxY = 34;
+  const padX = 4.5;
+  const innerBoxW = contentWidth - padX * 2; // 173 mm
+  const leftColMaxW = 110;
+  const rightColX = margin + 118;
+  const rightColMaxW = contentWidth - 118 - padX; // 59.5 mm
+
+  const fullNameWithCode = personCode ? `${personName}  (ID: ${personCode})` : personName;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  const nameLines: string[] = doc.splitTextToSize(fullNameWithCode, leftColMaxW);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  const groupLines: string[] = doc.splitTextToSize(groupOrRole || "Sin grupo", rightColMaxW);
 
   const startFormatted = formatReadableSpanishDate(startDate);
   const endFormatted = formatReadableSpanishDate(endDate);
+  const periodText = `Período evaluado: Desde el ${startFormatted} hasta el ${endFormatted}`;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
-  doc.setTextColor(51, 65, 85);
-  doc.text(
-    `Período evaluado: Desde el ${startFormatted} hasta el ${endFormatted}`,
-    margin + 4,
-    55.5
-  );
+  const periodLines: string[] = doc.splitTextToSize(periodText, innerBoxW);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
   const holidayNote =
     holidaysExcludedCount > 0
       ? ` (${holidaysExcludedCount} día(s) festivo(s) excluido(s) en este rango)`
       : "";
-  doc.text(
-    `Nota: Incluye únicamente días hábiles de lunes a viernes, excluyendo sábados, domingos y festivos oficiales${holidayNote}.`,
-    margin + 4,
-    60
-  );
+  const noteText = `Nota: Incluye únicamente días hábiles de lunes a viernes, excluyendo sábados, domingos y festivos oficiales${holidayNote}.`;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.8);
+  const noteLines: string[] = doc.splitTextToSize(noteText, innerBoxW);
 
-  // 3. Tarjetas de Resumen (Días Hábiles, Días que Asistió, Días que No Asistió, % Cumplimiento)
-  const cardY = 65;
-  const cardHeight = 18;
-  const gap = 3.5;
-  const cardWidth = (contentWidth - gap * 3) / 4;
+  const row1LinesCount = Math.max(nameLines.length, groupLines.length);
+  const nameStartY = boxY + 9.2;
+  const periodStartY = nameStartY + row1LinesCount * 4.1 + 1.2;
+  const noteStartY = periodStartY + periodLines.length * 3.8 + 0.8;
+  const boxHeight = noteStartY - boxY + noteLines.length * 3.4 + 2.2;
 
-  // Tarjeta 1: Total Días Hábiles
-  doc.setFillColor(241, 245, 249);
-  doc.setDrawColor(203, 213, 225);
-  doc.roundedRect(margin, cardY, cardWidth, cardHeight, 2, 2, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(15, 23, 42);
-  doc.text(String(totalDays), margin + cardWidth / 2, cardY + 9.5, { align: "center" });
-  doc.setFontSize(7.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text("DÍAS HÁBILES (L-V)", margin + cardWidth / 2, cardY + 15, { align: "center" });
-
-  // Tarjeta 2: Días que Asistió
-  const card2X = margin + cardWidth + gap;
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(167, 243, 208);
-  doc.roundedRect(card2X, cardY, cardWidth, cardHeight, 2, 2, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(5, 150, 105);
-  doc.text(String(presentDays), card2X + cardWidth / 2, cardY + 9.5, { align: "center" });
-  doc.setFontSize(7.5);
-  doc.setTextColor(4, 120, 87);
-  doc.text("DÍAS QUE ASISTIÓ", card2X + cardWidth / 2, cardY + 15, { align: "center" });
-
-  // Tarjeta 3: Días que No Asistió
-  const card3X = margin + (cardWidth + gap) * 2;
-  doc.setFillColor(254, 242, 242);
-  doc.setDrawColor(254, 202, 202);
-  doc.roundedRect(card3X, cardY, cardWidth, cardHeight, 2, 2, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(220, 38, 38);
-  doc.text(String(absentDays), card3X + cardWidth / 2, cardY + 9.5, { align: "center" });
-  doc.setFontSize(7.5);
-  doc.setTextColor(185, 28, 28);
-  doc.text("DÍAS QUE NO ASISTIÓ", card3X + cardWidth / 2, cardY + 15, { align: "center" });
-
-  // Tarjeta 4: % Asistencia
-  const card4X = margin + (cardWidth + gap) * 3;
-  doc.setFillColor(239, 246, 255);
-  doc.setDrawColor(191, 219, 254);
-  doc.roundedRect(card4X, cardY, cardWidth, cardHeight, 2, 2, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(30, 64, 175);
-  doc.text(`${percentage}%`, card4X + cardWidth / 2, cardY + 9.5, { align: "center" });
-  doc.setFontSize(7.5);
-  doc.setTextColor(29, 78, 216);
-  doc.text("% DE ASISTENCIA", card4X + cardWidth / 2, cardY + 15, { align: "center" });
-
-  // 4. Tabla Detallada de Días Asistidos y No Asistidos
-  const tableBody = sortedRows.map((r, idx) => {
-    const capDay = r.dayName ? r.dayName.charAt(0).toUpperCase() + r.dayName.slice(1) : "";
-    return [
-      String(idx + 1),
-      r.dateFormatted,
-      capDay,
-      r.status === "present" ? "ASISTIÓ" : "NO ASISTIÓ",
-      r.checkIn || "—",
-    ];
-  });
-
-  autoTable(doc, {
-    head: [["N°", "Fecha", "Día Hábil", "Estado de Asistencia", "Hora de Llegada"]],
-    body: tableBody as never[][],
-    startY: 87,
-    margin: { left: margin, right: margin, bottom: 36 },
-    styles: {
-      fontSize: 9,
-      cellPadding: 2.8,
-      valign: "middle",
-      textColor: [30, 41, 59],
-    },
-    headStyles: {
-      fillColor: [30, 64, 175],
-      textColor: 255,
-      fontStyle: "bold",
-      halign: "center",
-    },
-    columnStyles: {
-      0: { halign: "center", cellWidth: 14 },
-      1: { halign: "left", cellWidth: 62 },
-      2: { halign: "left", cellWidth: 36 },
-      3: { halign: "center", cellWidth: 40, fontStyle: "bold" },
-      4: { halign: "center", cellWidth: 30 },
-    },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    didParseCell: (data) => {
-      if (data.section === "body" && data.column.index === 3) {
-        const rawVal = String(data.cell.raw || "");
-        if (rawVal === "ASISTIÓ") {
-          data.cell.styles.fillColor = [220, 252, 231];
-          data.cell.styles.textColor = [22, 101, 52];
-        } else {
-          data.cell.styles.fillColor = [254, 226, 226];
-          data.cell.styles.textColor = [153, 27, 27];
-        }
-      }
-    },
-  });
-
-  // 5. Bloque Final de Certificación del Sistema (Sin firma, con atribución al usuario en sesión)
-  const finalY = ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || 120) + 6;
-  let footerBlockY = finalY;
-  if (footerBlockY + 26 > pageHeight - 12) {
-    doc.addPage();
-    footerBlockY = 20;
-  }
-
+  // Dibujar fondo y borde del recuadro antes de imprimir los textos envueltos
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(203, 213, 225);
   doc.setLineWidth(0.35);
-  doc.roundedRect(margin, footerBlockY, contentWidth, 23, 2, 2, "FD");
+  doc.roundedRect(margin, boxY, contentWidth, boxHeight, 2, 2, "FD");
 
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`${personTypeLabel.toUpperCase()}:`, margin + padX, boxY + 4.8);
+  doc.text("GRUPO / NIVEL:", rightColX, boxY + 4.8);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text(nameLines, margin + padX, nameStartY);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 64, 175);
+  doc.text(groupLines, rightColX, nameStartY);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(51, 65, 85);
+  doc.text(periodLines, margin + padX, periodStartY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.8);
+  doc.setTextColor(100, 116, 139);
+  doc.text(noteLines, margin + padX, noteStartY);
+
+  // =========================================================================
+  // 3. TARJETAS DE RESUMEN A COLOR (Días Hábiles, Asistió, No Asistió, %)
+  // =========================================================================
+  const cardY = boxY + boxHeight + 3.5;
+  const cardHeight = 16.5;
+  const cardGap = 3.5;
+  const cardWidth = (contentWidth - cardGap * 3) / 4;
+
+  // Tarjeta 1: DÍAS HÁBILES (L-V)
+  doc.setFillColor(241, 245, 249);
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.35);
+  doc.roundedRect(margin, cardY, cardWidth, cardHeight, 2, 2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(totalDays), margin + cardWidth / 2, cardY + 8.8, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(71, 85, 105);
+  doc.text("DÍAS HÁBILES (L-V)", margin + cardWidth / 2, cardY + 14, { align: "center" });
+
+  // Tarjeta 2: DÍAS QUE ASISTIÓ (Verde)
+  const card2X = margin + cardWidth + cardGap;
+  doc.setFillColor(220, 252, 231);
+  doc.setDrawColor(74, 222, 128);
+  doc.roundedRect(card2X, cardY, cardWidth, cardHeight, 2, 2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13.5);
+  doc.setTextColor(21, 128, 61);
+  doc.text(String(presentDays), card2X + cardWidth / 2, cardY + 8.8, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(22, 101, 52);
+  doc.text("DÍAS QUE ASISTIÓ", card2X + cardWidth / 2, cardY + 14, { align: "center" });
+
+  // Tarjeta 3: DÍAS QUE NO ASISTIÓ (Rojo)
+  const card3X = margin + (cardWidth + cardGap) * 2;
+  doc.setFillColor(254, 226, 226);
+  doc.setDrawColor(248, 113, 113);
+  doc.roundedRect(card3X, cardY, cardWidth, cardHeight, 2, 2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13.5);
+  doc.setTextColor(185, 28, 28);
+  doc.text(String(absentDays), card3X + cardWidth / 2, cardY + 8.8, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(153, 27, 27);
+  doc.text("DÍAS QUE NO ASISTIÓ", card3X + cardWidth / 2, cardY + 14, { align: "center" });
+
+  // Tarjeta 4: % DE ASISTENCIA (Azul Institucional)
+  const card4X = margin + (cardWidth + cardGap) * 3;
+  doc.setFillColor(219, 234, 254);
+  doc.setDrawColor(96, 165, 250);
+  doc.roundedRect(card4X, cardY, cardWidth, cardHeight, 2, 2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13.5);
+  doc.setTextColor(30, 64, 175);
+  doc.text(`${percentage}%`, card4X + cardWidth / 2, cardY + 8.8, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(29, 78, 216);
+  doc.text("% DE ASISTENCIA", card4X + cardWidth / 2, cardY + 14, { align: "center" });
+
+  // =========================================================================
+  // 4. PREPARAR PIE DE ATRIBUCIÓN EN LA MISMA HOJA (Sin firma)
+  // =========================================================================
   const now = new Date();
   const genDateStr = now.toLocaleDateString("es-CO", {
     year: "numeric",
@@ -473,54 +490,194 @@ export async function exportPersonAttendanceRangePDF(options: PersonAttendanceRa
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
+  const genUserLines: string[] = doc.splitTextToSize(
+    `Generado por: ${generatedByName}  —  Rol: ${generatedByRole}`,
+    innerBoxW
+  );
+  const footerBoxHeight = 18.5 + genUserLines.length * 3.8;
+  const footerBoxY = pageHeight - 11 - footerBoxHeight;
+
+  // =========================================================================
+  // 5. PANELES A COLOR EN UNA SOLA HOJA: DÍAS QUE ASISTIÓ vs DÍAS QUE NO ASISTIÓ
+  // =========================================================================
+  const panelsTop = cardY + cardHeight + 4;
+  const panelsBottom = footerBoxY - 4;
+  const panelHeight = Math.max(40, panelsBottom - panelsTop);
+  const panelGap = 4;
+  const panelWidth = (contentWidth - panelGap) / 2; // 89 mm cada columna
+
+  function renderColoredDaysPanel(params: {
+    x: number;
+    title: string;
+    items: PersonAttendanceRangeRow[];
+    emptyText: string;
+    theme: "green" | "red";
+  }) {
+    const { x, title, items, emptyText, theme } = params;
+    const isGreen = theme === "green";
+
+    // Contenedor principal del panel
+    if (isGreen) {
+      doc.setFillColor(240, 253, 244);
+      doc.setDrawColor(134, 239, 172);
+    } else {
+      doc.setFillColor(254, 242, 242);
+      doc.setDrawColor(252, 165, 165);
+    }
+    doc.setLineWidth(0.4);
+    doc.roundedRect(x, panelsTop, panelWidth, panelHeight, 2.5, 2.5, "FD");
+
+    // Encabezado a color dentro del panel
+    if (isGreen) {
+      doc.setFillColor(22, 163, 74);
+    } else {
+      doc.setFillColor(220, 38, 38);
+    }
+    doc.roundedRect(x + 1.5, panelsTop + 1.5, panelWidth - 3, 8, 1.6, 1.6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(title, x + panelWidth / 2, panelsTop + 6.7, { align: "center" });
+
+    const innerX = x + 2.5;
+    const innerY = panelsTop + 11.5;
+    const innerW = panelWidth - 5;
+    const innerH = panelHeight - 14;
+
+    if (items.length === 0) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      doc.setTextColor(isGreen ? 21 : 185, isGreen ? 128 : 28, isGreen ? 61 : 28);
+      const emptyLines: string[] = doc.splitTextToSize(emptyText, innerW - 8);
+      doc.text(emptyLines, x + panelWidth / 2, innerY + innerH / 2 - 2, { align: "center" });
+      return;
+    }
+
+    // Cálculo adaptativo de sub-columnas para garantizar que TODOS los días quepan en 1 sola hoja
+    const count = items.length;
+    let cols = 1;
+    if (count > 108) cols = 4;
+    else if (count > 56) cols = 3;
+    else if (count > 22) cols = 2;
+
+    const rowsCount = Math.ceil(count / cols);
+    const gapX = cols >= 3 ? 1.5 : 2;
+    const gapY = rowsCount > 45 ? 0.35 : rowsCount > 32 ? 0.6 : rowsCount > 22 ? 0.9 : 1.3;
+    const pillW = (innerW - gapX * (cols - 1)) / cols;
+    const rawPillH = Math.max(1.6, (innerH - gapY * (rowsCount - 1)) / rowsCount);
+    const maxPillH = cols === 1 ? 6.2 : cols === 2 ? 5.2 : 4.2;
+    const pillH = Math.min(maxPillH, rawPillH);
+
+    let fontSize = 8;
+    if (cols === 2) fontSize = 7.3;
+    else if (cols === 3) fontSize = 6.3;
+    else if (cols === 4) fontSize = 5.3;
+    if (pillH < 3.4) fontSize = Math.min(fontSize, 5.5);
+
+    doc.setLineWidth(0.2);
+
+    items.forEach((item, idx) => {
+      const colIdx = Math.floor(idx / rowsCount);
+      const rowIdx = idx % rowsCount;
+      const px = innerX + colIdx * (pillW + gapX);
+      const py = innerY + rowIdx * (pillH + gapY);
+
+      if (isGreen) {
+        doc.setFillColor(220, 252, 231);
+        doc.setDrawColor(134, 239, 172);
+      } else {
+        doc.setFillColor(254, 226, 226);
+        doc.setDrawColor(252, 165, 165);
+      }
+      doc.roundedRect(px, py, pillW, pillH, 1.2, 1.2, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(fontSize);
+      if (isGreen) {
+        doc.setTextColor(20, 83, 45);
+      } else {
+        doc.setTextColor(153, 27, 27);
+      }
+
+      const label = formatDayPillLabel(item.date, cols, idx);
+      const textY = py + pillH / 2 + fontSize * 0.12;
+      if (cols === 1) {
+        doc.text(label, px + 3, textY, { maxWidth: pillW - 5 });
+      } else {
+        doc.text(label, px + pillW / 2, textY, { align: "center", maxWidth: pillW - 1.5 });
+      }
+    });
+  }
+
+  renderColoredDaysPanel({
+    x: margin,
+    title: `DÍAS QUE ASISTIÓ (${presentDays})`,
+    items: presentRows,
+    emptyText: "Ningún día de asistencia registrado en este rango de fechas.",
+    theme: "green",
+  });
+
+  renderColoredDaysPanel({
+    x: margin + panelWidth + panelGap,
+    title: `DÍAS QUE NO ASISTIÓ (${absentDays})`,
+    items: absentRows,
+    emptyText: "¡Excelente! Ningún día de inasistencia en este rango de fechas.",
+    theme: "red",
+  });
+
+  // =========================================================================
+  // 6. BLOQUE FINAL DE CONSTANCIA DEL SISTEMA (Sin firma, en la misma hoja)
+  // =========================================================================
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.35);
+  doc.roundedRect(margin, footerBoxY, contentWidth, footerBoxHeight, 2, 2, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
   doc.setTextColor(30, 64, 175);
   doc.text(
     "CONSTANCIA AUTOMÁTICA DEL SISTEMA DE GESTIÓN DE ASISTENCIA — CASITA DE TAREAS",
-    margin + 4,
-    footerBlockY + 6
+    margin + padX,
+    footerBoxY + 5.2,
+    { maxWidth: innerBoxW }
   );
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setTextColor(51, 65, 85);
   doc.text(
     "Este reporte fue generado oficialmente desde el Sistema de Gestión de Asistencia de Casita de Tareas.",
-    margin + 4,
-    footerBlockY + 11.5
+    margin + padX,
+    footerBoxY + 10,
+    { maxWidth: innerBoxW }
   );
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(
-    `Generado por: ${generatedByName}  —  Rol: ${generatedByRole}`,
-    margin + 4,
-    footerBlockY + 17
-  );
+  doc.text(genUserLines, margin + padX, footerBoxY + 14.8);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
   doc.text(
     `Fecha y hora de generación: ${genDateStr} a las ${genTimeStr}`,
-    margin + 4,
-    footerBlockY + 21.2
+    margin + padX,
+    footerBoxY + 14.8 + genUserLines.length * 3.8 + 0.8,
+    { maxWidth: innerBoxW }
   );
 
-  // Numeración de páginas en pie de página
-  const totalPages = doc.getNumberOfPages();
-  for (let p = 1; p <= totalPages; p++) {
-    doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(
-      `Casita de Tareas · Sistema de Gestión de Asistencia · Página ${p} de ${totalPages}`,
-      pageWidth / 2,
-      pageHeight - 6,
-      { align: "center" }
-    );
-  }
+  // Pie de página centrado dentro del margen inferior
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.2);
+  doc.setTextColor(148, 163, 184);
+  doc.text(
+    "Casita de Tareas · Sistema de Gestión de Asistencia · Página 1 de 1",
+    pageWidth / 2,
+    pageHeight - 5.2,
+    { align: "center" }
+  );
 
   doc.save(`${filename}.pdf`);
 }

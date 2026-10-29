@@ -789,7 +789,6 @@ export default function ReportsPage() {
         "Fecha": r.dateFormatted,
         "Día Hábil": r.dayName,
         "Estado": r.statusLabel,
-        "Hora de llegada": r.checkIn || "—",
       }));
     } else if (reportType === "person" && selectedPersonId) {
       return personHistory.map((r) => ({
@@ -1721,7 +1720,6 @@ export default function ReportsPage() {
                         <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Fecha</th>
                         <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Día Hábil</th>
                         <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Estado</th>
-                        <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Hora de Llegada</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1745,9 +1743,6 @@ export default function ReportsPage() {
                             >
                               {r.statusLabel}
                             </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-center text-xs text-gray-500 dark:text-gray-400">
-                            {r.checkIn || "—"}
                           </td>
                         </tr>
                       ))}
