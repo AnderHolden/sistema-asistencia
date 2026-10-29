@@ -3,86 +3,238 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
-import { exportToExcel, exportToCsv, exportToPDF, exportToPDFDetail, type PDFDetailRow } from "@/lib/export";
-import { getTodayDate, isWeekday, formatTime } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
+import {
+  exportToExcel,
+  exportToCsv,
+  exportToPDF,
+  exportToPDFDetail,
+  exportPersonAttendanceRangePDF,
+  type PDFDetailRow,
+} from "@/lib/export";
+import { getTodayDate, isWeekday, formatTime, getBusinessDaysBetween } from "@/lib/utils";
 import { toast } from "react-hot-toast";
-import { DocumentArrowDownIcon, ChartBarIcon, UserGroupIcon, AcademicCapIcon, CalendarDaysIcon, TableCellsIcon, UserIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import {
+  DocumentArrowDownIcon,
+  ChartBarIcon,
+  UserGroupIcon,
+  AcademicCapIcon,
+  CalendarDaysIcon,
+  TableCellsIcon,
+  UserIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+} from "@heroicons/react/24/outline";
 import { DynamicBarChart, DynamicPieChart } from "@/components/charts/DynamicCharts";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import type { Child, Group, AttendanceChild, Teacher, Practitioner, AttendanceStaff } from "@/types/database";
 
-interface ReportRow { childName: string; childCode: string; groupName: string; totalPresent: number; totalAbsent: number; percentage: number; }
-interface StaffReportRow { staffName: string; type: string; totalPresent: number; totalAbsent: number; percentage: number; }
-interface SpecificRow { id: string; name: string; groupId: string | null; groupOrType: string; date: string; status: string; statusLabel: string; checkIn: string | null; signatureUrl: string | null; }
-interface PersonDayRow { date: string; dateFormatted: string; dayName: string; status: "present" | "absent"; statusLabel: string; checkIn: string | null; signatureUrl: string | null; }
-interface PersonOption { id: string; name: string; subtitle: string; type: "child" | "teacher" | "practitioner"; }
+interface ReportRow {
+  childName: string;
+  childCode: string;
+  groupName: string;
+  totalPresent: number;
+  totalAbsent: number;
+  percentage: number;
+}
+interface StaffReportRow {
+  staffName: string;
+  type: string;
+  totalPresent: number;
+  totalAbsent: number;
+  percentage: number;
+}
+interface SpecificRow {
+  id: string;
+  code?: string;
+  name: string;
+  groupId: string | null;
+  groupOrType: string;
+  date: string;
+  status: string;
+  statusLabel: string;
+  checkIn: string | null;
+  signatureUrl: string | null;
+  totalPresent?: number;
+  totalAbsent?: number;
+  totalBusinessDays?: number;
+  percentage?: number;
+}
+interface PersonDayRow {
+  date: string;
+  dateFormatted: string;
+  dayName: string;
+  status: "present" | "absent";
+  statusLabel: string;
+  checkIn: string | null;
+  signatureUrl: string | null;
+}
+interface PersonOption {
+  id: string;
+  code?: string;
+  name: string;
+  groupId?: string | null;
+  groupOrRole: string;
+  subtitle: string;
+  type: "child" | "teacher" | "practitioner";
+}
 
 export default function ReportsPage() {
+  const { user, profile } = useAuth();
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [staffReportData, setStaffReportData] = useState<StaffReportRow[]>([]);
   const [childrenMonthlyData, setChildrenMonthlyData] = useState<{ month: string; presentes: number; ausentes: number }[]>([]);
   const [staffMonthlyData, setStaffMonthlyData] = useState<{ month: string; presentes: number; ausentes: number }[]>([]);
   const [filter, setFilter] = useState<"day" | "week" | "month" | "year" | "custom">("month");
   const today = getTodayDate();
-  const [customStartDate, setCustomStartDate] = useState(`${today.slice(0, 7)}-01`);
+  const firstDayOfMonth = `${today.slice(0, 7)}-01`;
+  const [customStartDate, setCustomStartDate] = useState(firstDayOfMonth);
   const [customEndDate, setCustomEndDate] = useState(today);
   const [groupId, setGroupId] = useState("all");
   const [tableSearch, setTableSearch] = useState("");
   const [reportTab, setReportTab] = useState<"children" | "staff">("children");
   const [groups, setGroups] = useState<Group[]>([]);
+  const [customHolidays, setCustomHolidays] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [reportType, setReportType] = useState<"aggregate" | "specific" | "person">("aggregate");
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [specificData, setSpecificData] = useState<SpecificRow[]>([]);
 
+  // Estados para "Por Fecha" (Con filtro Desde - Hasta y selección de Niño/Persona)
+  const [specificStartDate, setSpecificStartDate] = useState(firstDayOfMonth);
+  const [specificEndDate, setSpecificEndDate] = useState(today);
+  const [specificPersonId, setSpecificPersonId] = useState<string>("");
+  const [specificPersonSearch, setSpecificPersonSearch] = useState("");
+  const [specificPersonDropdownOpen, setSpecificPersonDropdownOpen] = useState(false);
+  const [specificData, setSpecificData] = useState<SpecificRow[]>([]);
+  const [specificPersonDays, setSpecificPersonDays] = useState<PersonDayRow[]>([]);
+  const [specificHolidaysCount, setSpecificHolidaysCount] = useState(0);
+
+  // Estados para "Por Persona" (También con soporte Desde - Hasta)
   const [personSearch, setPersonSearch] = useState("");
   const [personDropdownOpen, setPersonDropdownOpen] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [selectedPersonName, setSelectedPersonName] = useState("");
+  const [personStartDate, setPersonStartDate] = useState(firstDayOfMonth);
+  const [personEndDate, setPersonEndDate] = useState(today);
   const [personHistory, setPersonHistory] = useState<PersonDayRow[]>([]);
+  const [personHolidaysCount, setPersonHolidaysCount] = useState(0);
   const [allPeople, setAllPeople] = useState<PersonOption[]>([]);
 
+  const generatedByName = useMemo(() => {
+    return profile?.display_name || user?.displayName || user?.email?.split("@")[0] || "Usuario";
+  }, [profile, user]);
+
+  const generatedByRole = useMemo(() => {
+    if (profile?.role === "super_admin") return "SuperAdmin";
+    if (profile?.role === "operator") return "Operador";
+    return "Usuario Autorizado";
+  }, [profile]);
+
   const loadAllPeople = useCallback(async () => {
-    setLoading(true);
     try {
-      const [childrenSnap, groupsSnap, teachersSnap, practitionersSnap] = await Promise.all([
+      const [childrenSnap, groupsSnap, teachersSnap, practitionersSnap, holidaysSnap] = await Promise.all([
         getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
         getDocs(collection(getFirebaseDb(), "groups")),
         getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
         getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
+        getDocs(collection(getFirebaseDb(), "holidays")).catch(() => null),
       ]);
       const groupsList = groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group));
       setGroups(groupsList);
+      if (holidaysSnap) {
+        const hList = holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean);
+        setCustomHolidays(hList);
+      }
       const children = childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
       const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
       const practitioners = practitionersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
 
       const people: PersonOption[] = [
-        ...children.map((c) => ({
-          id: c.id,
-          name: `${c.first_name} ${c.last_name}`,
-          subtitle: `${c.child_id_code || ""} · ${groupsList.find((g) => g.id === c.group_id)?.name || "Sin grupo"}`,
-          type: "child" as const,
-        })),
-        ...teachers.map((t) => ({
-          id: t.id,
-          name: `${t.first_name} ${t.last_name}`,
-          subtitle: `Profesor · ${t.document || ""}`,
-          type: "teacher" as const,
-        })),
-        ...practitioners.map((p) => ({
-          id: p.id,
-          name: `${p.first_name} ${p.last_name}`,
-          subtitle: `Practicante · ${p.document || ""}`,
-          type: "practitioner" as const,
-        })),
+        ...children
+          .map((c) => {
+            const gName = groupsList.find((g) => g.id === c.group_id)?.name || "Sin grupo";
+            return {
+              id: c.id,
+              code: c.child_id_code || "",
+              name: `${c.first_name} ${c.last_name}`,
+              groupId: c.group_id,
+              groupOrRole: gName,
+              subtitle: `${c.child_id_code ? `${c.child_id_code} · ` : ""}${gName}`,
+              type: "child" as const,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        ...teachers
+          .map((t) => ({
+            id: t.id,
+            code: t.document || "",
+            name: `${t.first_name} ${t.last_name}`,
+            groupId: null,
+            groupOrRole: "Profesor",
+            subtitle: `Profesor · ${t.document || ""}`,
+            type: "teacher" as const,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        ...practitioners
+          .map((p) => ({
+            id: p.id,
+            code: p.document || "",
+            name: `${p.first_name} ${p.last_name}`,
+            groupId: null,
+            groupOrRole: "Practicante",
+            subtitle: `Practicante · ${p.document || ""}`,
+            type: "practitioner" as const,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
       ];
       setAllPeople(people);
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      console.error("Error cargando listado de personas:", err);
     }
   }, []);
+
+  const buildPersonBusinessDaysRows = useCallback(
+    (
+      businessDays: string[],
+      rawAtt: Array<Record<string, unknown>>,
+      isChild: boolean
+    ): PersonDayRow[] => {
+      const attMap = new Map<string, Record<string, unknown>>();
+      for (const rec of rawAtt) {
+        const dStr = rec.attendance_date as string;
+        if (dStr) attMap.set(dStr, rec);
+      }
+
+      return businessDays
+        .map((dateStr) => {
+          const rec = attMap.get(dateStr);
+          const date = new Date(dateStr + "T12:00:00");
+          const isPresent = rec
+            ? isChild
+              ? (rec.status as string) === "present"
+              : (rec.status as string) !== "absent" || Boolean(rec.check_in)
+            : false;
+
+          return {
+            date: dateStr,
+            dateFormatted: date.toLocaleDateString("es-CO", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            }),
+            dayName: date.toLocaleDateString("es-CO", { weekday: "long" }),
+            status: (isPresent ? "present" : "absent") as "present" | "absent",
+            statusLabel: isPresent ? "Asistió" : "No asistió",
+            checkIn: isPresent && (rec?.check_in as string) ? formatTime(rec?.check_in as string) : null,
+            signatureUrl: (rec?.signature_url as string) || null,
+          };
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
+    },
+    []
+  );
 
   const loadPersonHistory = useCallback(async () => {
     if (!selectedPersonId) return;
@@ -91,38 +243,33 @@ export default function ReportsPage() {
       const person = allPeople.find((p) => p.id === selectedPersonId);
       const isChild = person?.type === "child";
 
-      const attSnap = await getDocs(query(
-        collection(getFirebaseDb(), isChild ? "attendance_children" : "attendance_staff"),
-        isChild ? where("child_id", "==", selectedPersonId) : where("staff_id", "==", selectedPersonId)
-      ));
+      const attSnap = await getDocs(
+        query(
+          collection(getFirebaseDb(), isChild ? "attendance_children" : "attendance_staff"),
+          isChild ? where("child_id", "==", selectedPersonId) : where("staff_id", "==", selectedPersonId)
+        )
+      );
 
-      const rawAtt = attSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const weekdayAtt = rawAtt.filter((a: Record<string, unknown>) => isWeekday(a.attendance_date as string));
+      const rawAtt = attSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
+        .filter((a) => {
+          const d = a.attendance_date as string;
+          return d && d >= personStartDate && d <= personEndDate;
+        });
 
-      const history: PersonDayRow[] = weekdayAtt
-        .map((a: Record<string, unknown>) => {
-          const dateStr = a.attendance_date as string;
-          const date = new Date(dateStr + "T12:00:00");
-          const status = isChild
-            ? (a.status as string === "present" ? "present" : "absent")
-            : ((a.status as string !== "absent" || a.check_in) ? "present" : "absent");
-          return {
-            date: dateStr,
-            dateFormatted: date.toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "numeric" }),
-            dayName: date.toLocaleDateString("es-CO", { weekday: "long" }),
-            status: status as "present" | "absent",
-            statusLabel: status === "present" ? "Asistió" : "No asistió",
-            checkIn: (a.check_in as string) ? formatTime(a.check_in as string) : null,
-            signatureUrl: (a.signature_url as string) || null,
-          };
-        })
-        .sort((a, b) => b.date.localeCompare(a.date));
+      const { businessDays, holidaysInPeriod } = getBusinessDaysBetween(
+        personStartDate,
+        personEndDate,
+        customHolidays
+      );
+      setPersonHolidaysCount(holidaysInPeriod.length);
 
+      const history = buildPersonBusinessDaysRows(businessDays, rawAtt, isChild);
       setPersonHistory(history);
     } finally {
       setLoading(false);
     }
-  }, [selectedPersonId, allPeople]);
+  }, [selectedPersonId, allPeople, personStartDate, personEndDate, customHolidays, buildPersonBusinessDaysRows]);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -155,17 +302,23 @@ export default function ReportsPage() {
       const queryStart = startDate < sixMonthsStart ? startDate : sixMonthsStart;
       const queryEnd = endDate > getTodayDate() ? endDate : getTodayDate();
 
-      const [childrenSnap, groupsSnap, attendanceSnap, teachersSnap, practitionersSnap, staffAttendanceSnap] = await Promise.all([
+      const [childrenSnap, groupsSnap, attendanceSnap, teachersSnap, practitionersSnap, staffAttendanceSnap, holidaysSnap] = await Promise.all([
         getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
         getDocs(collection(getFirebaseDb(), "groups")),
         getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", ">=", queryStart), where("attendance_date", "<=", queryEnd))),
         getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
         getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
         getDocs(query(collection(getFirebaseDb(), "attendance_staff"), where("attendance_date", ">=", queryStart), where("attendance_date", "<=", queryEnd))),
+        getDocs(collection(getFirebaseDb(), "holidays")).catch(() => null),
       ]);
 
       const groupsList = groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group));
       setGroups(groupsList);
+      if (holidaysSnap) {
+        const hList = holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean);
+        setCustomHolidays(hList);
+      }
+
       const children = childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
       const allChildAtt = attendanceSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceChild)).filter((a) => isWeekday(a.attendance_date));
       const periodChildAtt = allChildAtt.filter((a) => a.attendance_date >= startDate && a.attendance_date <= endDate);
@@ -216,6 +369,47 @@ export default function ReportsPage() {
           .sort((a, b) => a.staffName.localeCompare(b.staffName))
       );
 
+      // También sincronizar lista de personas para selectores rápidos
+      const people: PersonOption[] = [
+        ...children
+          .map((c) => {
+            const gName = groupsList.find((g) => g.id === c.group_id)?.name || "Sin grupo";
+            return {
+              id: c.id,
+              code: c.child_id_code || "",
+              name: `${c.first_name} ${c.last_name}`,
+              groupId: c.group_id,
+              groupOrRole: gName,
+              subtitle: `${c.child_id_code ? `${c.child_id_code} · ` : ""}${gName}`,
+              type: "child" as const,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        ...teachers
+          .map((t) => ({
+            id: t.id,
+            code: t.document || "",
+            name: `${t.first_name} ${t.last_name}`,
+            groupId: null,
+            groupOrRole: "Profesor",
+            subtitle: `Profesor · ${t.document || ""}`,
+            type: "teacher" as const,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        ...practitioners
+          .map((p) => ({
+            id: p.id,
+            code: p.document || "",
+            name: `${p.first_name} ${p.last_name}`,
+            groupId: null,
+            groupOrRole: "Practicante",
+            subtitle: `Practicante · ${p.document || ""}`,
+            type: "practitioner" as const,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      ];
+      setAllPeople(people);
+
       const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
       const cMonthly: { month: string; presentes: number; ausentes: number }[] = [];
       const sMonthly: { month: string; presentes: number; ausentes: number }[] = [];
@@ -251,48 +445,121 @@ export default function ReportsPage() {
     }
   }, [filter, groupId, customStartDate, customEndDate]);
 
-  const loadSpecificDate = useCallback(async () => {
-    if (!isWeekday(selectedDate)) {
+  const loadSpecificDateRange = useCallback(async () => {
+    if (!specificStartDate || !specificEndDate || specificStartDate > specificEndDate) {
       setSpecificData([]);
+      setSpecificPersonDays([]);
       setLoading(false);
       return;
     }
+
     setLoading(true);
     try {
-      const [childrenSnap, groupsSnap, attChildSnap, teachersSnap, practitionersSnap, attStaffSnap] = await Promise.all([
+      const [childrenSnap, groupsSnap, attChildSnap, teachersSnap, practitionersSnap, attStaffSnap, holidaysSnap] = await Promise.all([
         getDocs(query(collection(getFirebaseDb(), "children"), where("status", "==", "active"))),
         getDocs(collection(getFirebaseDb(), "groups")),
-        getDocs(query(collection(getFirebaseDb(), "attendance_children"), where("attendance_date", "==", selectedDate))),
+        getDocs(
+          query(
+            collection(getFirebaseDb(), "attendance_children"),
+            where("attendance_date", ">=", specificStartDate),
+            where("attendance_date", "<=", specificEndDate)
+          )
+        ),
         getDocs(query(collection(getFirebaseDb(), "teachers"), where("status", "==", "active"))),
         getDocs(query(collection(getFirebaseDb(), "practitioners"), where("status", "==", "active"))),
-        getDocs(query(collection(getFirebaseDb(), "attendance_staff"), where("attendance_date", "==", selectedDate))),
+        getDocs(
+          query(
+            collection(getFirebaseDb(), "attendance_staff"),
+            where("attendance_date", ">=", specificStartDate),
+            where("attendance_date", "<=", specificEndDate)
+          )
+        ),
+        getDocs(collection(getFirebaseDb(), "holidays")).catch(() => null),
       ]);
 
       const groupsList = groupsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Group));
       setGroups(groupsList);
+
+      let activeHolidays = customHolidays;
+      if (holidaysSnap) {
+        activeHolidays = holidaysSnap.docs.map((d) => String(d.data().holiday_date || "")).filter(Boolean);
+        setCustomHolidays(activeHolidays);
+      }
+
+      const { businessDays, holidaysInPeriod } = getBusinessDaysBetween(
+        specificStartDate,
+        specificEndDate,
+        activeHolidays
+      );
+      setSpecificHolidaysCount(holidaysInPeriod.length);
+      const businessDaySet = new Set(businessDays);
+
       const children = childrenSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
-      const attChild = attChildSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceChild));
+      const attChild = attChildSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as AttendanceChild))
+        .filter((a) => businessDaySet.has(a.attendance_date));
       const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher));
       const practitioners = practitionersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Practitioner));
-      const attStaff = attStaffSnap.docs.map((d) => ({ id: d.id, ...d.data() } as AttendanceStaff));
+      const attStaff = attStaffSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as AttendanceStaff))
+        .filter((a) => businessDaySet.has(a.attendance_date));
 
-      const dateFormatted = new Date(selectedDate + "T12:00:00").toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "numeric" });
+      // Si hay un niño/persona seleccionado en "Por Fecha", construir su desglose día por día (Lunes a Viernes sin festivos)
+      if (specificPersonId) {
+        if (reportTab === "children") {
+          const personRecords = attChild
+            .filter((a) => a.child_id === specificPersonId)
+            .map((a) => ({ ...a } as unknown as Record<string, unknown>));
+          setSpecificPersonDays(buildPersonBusinessDaysRows(businessDays, personRecords, true));
+        } else {
+          const personRecords = attStaff
+            .filter((a) => a.staff_id === specificPersonId)
+            .map((a) => ({ ...a } as unknown as Record<string, unknown>));
+          setSpecificPersonDays(buildPersonBusinessDaysRows(businessDays, personRecords, false));
+        }
+      } else {
+        setSpecificPersonDays([]);
+      }
+
+      const isSingleDay = specificStartDate === specificEndDate;
+      const singleDateFormatted = isSingleDay
+        ? new Date(specificStartDate + "T12:00:00").toLocaleDateString("es-CO", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })
+        : `${specificStartDate} a ${specificEndDate}`;
 
       if (reportTab === "children") {
         const childRows: SpecificRow[] = children
           .map((child) => {
-            const att = attChild.find((a) => a.child_id === child.id);
             const groupName = groupsList.find((g) => g.id === child.group_id)?.name || "Sin grupo";
+            const childAtt = attChild.filter((a) => a.child_id === child.id);
+            const presentCount = childAtt.filter((a) => a.status === "present").length;
+            const totalBDays = businessDays.length;
+            const absentCount = Math.max(0, totalBDays - presentCount);
+            const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
+            const singleAtt = isSingleDay ? childAtt[0] : undefined;
+
             return {
               id: child.id,
+              code: child.child_id_code || "",
               name: `${child.first_name} ${child.last_name}`,
               groupId: child.group_id,
               groupOrType: groupName,
-              date: dateFormatted,
-              status: att?.status || "absent",
-              statusLabel: att?.status === "present" ? "Asistió" : "No asistió",
-              checkIn: att?.check_in ? formatTime(att.check_in) : null,
+              date: singleDateFormatted,
+              status: isSingleDay ? singleAtt?.status || "absent" : pct >= 50 ? "present" : "absent",
+              statusLabel: isSingleDay
+                ? singleAtt?.status === "present"
+                  ? "Asistió"
+                  : "No asistió"
+                : `${presentCount} asistió / ${absentCount} no asistió`,
+              checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
               signatureUrl: null,
+              totalPresent: presentCount,
+              totalAbsent: absentCount,
+              totalBusinessDays: totalBDays,
+              percentage: pct,
             };
           })
           .sort((a, b) => a.name.localeCompare(b.name));
@@ -300,33 +567,63 @@ export default function ReportsPage() {
       } else {
         const staffRows: SpecificRow[] = [
           ...teachers.map((t) => {
-            const att = attStaff.find((a) => a.staff_id === t.id && a.staff_type === "teacher");
-            const isPres = att ? !(att.status === "absent" && !att.check_in) : false;
+            const sAtt = attStaff.filter((a) => a.staff_id === t.id && a.staff_type === "teacher");
+            const presentCount = sAtt.filter((a) => !(a.status === "absent" && !a.check_in)).length;
+            const totalBDays = businessDays.length;
+            const absentCount = Math.max(0, totalBDays - presentCount);
+            const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
+            const singleAtt = isSingleDay ? sAtt[0] : undefined;
+            const isPres = singleAtt ? !(singleAtt.status === "absent" && !singleAtt.check_in) : false;
+
             return {
               id: t.id,
+              code: t.document || "",
               name: `${t.first_name} ${t.last_name}`,
               groupId: null,
               groupOrType: "Profesor",
-              date: dateFormatted,
-              status: isPres ? "present" : "absent",
-              statusLabel: isPres ? "Asistió" : "No asistió",
-              checkIn: att?.check_in ? formatTime(att.check_in) : null,
-              signatureUrl: att?.signature_url || null,
+              date: singleDateFormatted,
+              status: isSingleDay ? (isPres ? "present" : "absent") : pct >= 50 ? "present" : "absent",
+              statusLabel: isSingleDay
+                ? isPres
+                  ? "Asistió"
+                  : "No asistió"
+                : `${presentCount} asistió / ${absentCount} no asistió`,
+              checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
+              signatureUrl: isSingleDay ? singleAtt?.signature_url || null : null,
+              totalPresent: presentCount,
+              totalAbsent: absentCount,
+              totalBusinessDays: totalBDays,
+              percentage: pct,
             };
           }),
           ...practitioners.map((p) => {
-            const att = attStaff.find((a) => a.staff_id === p.id && a.staff_type === "practitioner");
-            const isPres = att ? !(att.status === "absent" && !att.check_in) : false;
+            const sAtt = attStaff.filter((a) => a.staff_id === p.id && a.staff_type === "practitioner");
+            const presentCount = sAtt.filter((a) => !(a.status === "absent" && !a.check_in)).length;
+            const totalBDays = businessDays.length;
+            const absentCount = Math.max(0, totalBDays - presentCount);
+            const pct = totalBDays > 0 ? Math.round((presentCount / totalBDays) * 100) : 0;
+            const singleAtt = isSingleDay ? sAtt[0] : undefined;
+            const isPres = singleAtt ? !(singleAtt.status === "absent" && !singleAtt.check_in) : false;
+
             return {
               id: p.id,
+              code: p.document || "",
               name: `${p.first_name} ${p.last_name}`,
               groupId: null,
               groupOrType: "Practicante",
-              date: dateFormatted,
-              status: isPres ? "present" : "absent",
-              statusLabel: isPres ? "Asistió" : "No asistió",
-              checkIn: att?.check_in ? formatTime(att.check_in) : null,
-              signatureUrl: att?.signature_url || null,
+              date: singleDateFormatted,
+              status: isSingleDay ? (isPres ? "present" : "absent") : pct >= 50 ? "present" : "absent",
+              statusLabel: isSingleDay
+                ? isPres
+                  ? "Asistió"
+                  : "No asistió"
+                : `${presentCount} asistió / ${absentCount} no asistió`,
+              checkIn: isSingleDay && singleAtt?.check_in ? formatTime(singleAtt.check_in) : null,
+              signatureUrl: isSingleDay ? singleAtt?.signature_url || null : null,
+              totalPresent: presentCount,
+              totalAbsent: absentCount,
+              totalBusinessDays: totalBDays,
+              percentage: pct,
             };
           }),
         ].sort((a, b) => a.name.localeCompare(b.name));
@@ -335,15 +632,15 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, reportTab]);
+  }, [specificStartDate, specificEndDate, specificPersonId, reportTab, customHolidays, buildPersonBusinessDaysRows]);
 
   useEffect(() => {
     loadReport();
   }, [loadReport]);
 
   useEffect(() => {
-    if (reportType === "specific") loadSpecificDate();
-  }, [selectedDate, reportType, reportTab, loadSpecificDate]);
+    if (reportType === "specific") loadSpecificDateRange();
+  }, [specificStartDate, specificEndDate, specificPersonId, reportType, reportTab, loadSpecificDateRange]);
 
   useEffect(() => {
     if (reportType === "person") loadAllPeople();
@@ -351,27 +648,65 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (selectedPersonId) loadPersonHistory();
-  }, [selectedPersonId, loadPersonHistory]);
+  }, [selectedPersonId, personStartDate, personEndDate, loadPersonHistory]);
+
+  const peopleForCurrentTab = useMemo(() => {
+    return allPeople
+      .filter((p) => (reportTab === "children" ? p.type === "child" : p.type !== "child"))
+      .filter((p) => reportTab !== "children" || groupId === "all" || p.groupId === groupId);
+  }, [allPeople, reportTab, groupId]);
+
+  const specificPersonResults = useMemo(() => {
+    if (!specificPersonDropdownOpen) return [];
+    const term = specificPersonSearch.trim().toLowerCase();
+    const list = peopleForCurrentTab;
+    if (!term) return list.slice(0, 25);
+    return list
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(term) ||
+          p.subtitle.toLowerCase().includes(term) ||
+          (p.code && p.code.toLowerCase().includes(term))
+      )
+      .slice(0, 25);
+  }, [specificPersonSearch, peopleForCurrentTab, specificPersonDropdownOpen]);
+
+  const selectedSpecificPerson = useMemo(() => {
+    if (!specificPersonId) return null;
+    return allPeople.find((p) => p.id === specificPersonId) || null;
+  }, [specificPersonId, allPeople]);
 
   const personResults = useMemo(() => {
     if (!personDropdownOpen || personSearch.trim().length === 0 || allPeople.length === 0) return [];
     const term = personSearch.toLowerCase();
     return allPeople
       .filter((p) => (reportTab === "children" ? p.type === "child" : p.type !== "child"))
-      .filter((p) => p.name.toLowerCase().includes(term) || p.subtitle.toLowerCase().includes(term) || (p.type === "child" && p.id.toLowerCase().includes(term)))
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(term) ||
+          p.subtitle.toLowerCase().includes(term) ||
+          (p.code && p.code.toLowerCase().includes(term))
+      )
       .slice(0, 20);
   }, [personSearch, allPeople, personDropdownOpen, reportTab]);
 
   const filteredAggregateChildren = useMemo(() => {
     if (!tableSearch.trim()) return reportData;
     const term = tableSearch.toLowerCase();
-    return reportData.filter((r) => r.childName.toLowerCase().includes(term) || r.childCode.toLowerCase().includes(term) || r.groupName.toLowerCase().includes(term));
+    return reportData.filter(
+      (r) =>
+        r.childName.toLowerCase().includes(term) ||
+        r.childCode.toLowerCase().includes(term) ||
+        r.groupName.toLowerCase().includes(term)
+    );
   }, [reportData, tableSearch]);
 
   const filteredAggregateStaff = useMemo(() => {
     if (!tableSearch.trim()) return staffReportData;
     const term = tableSearch.toLowerCase();
-    return staffReportData.filter((r) => r.staffName.toLowerCase().includes(term) || r.type.toLowerCase().includes(term));
+    return staffReportData.filter(
+      (r) => r.staffName.toLowerCase().includes(term) || r.type.toLowerCase().includes(term)
+    );
   }, [staffReportData, tableSearch]);
 
   const filteredSpecificData = useMemo(() => {
@@ -380,12 +715,26 @@ export default function ReportsPage() {
       .filter((r) => {
         if (!tableSearch.trim()) return true;
         const term = tableSearch.toLowerCase();
-        return r.name.toLowerCase().includes(term) || r.groupOrType.toLowerCase().includes(term);
+        return (
+          r.name.toLowerCase().includes(term) ||
+          r.groupOrType.toLowerCase().includes(term) ||
+          Boolean(r.code && r.code.toLowerCase().includes(term))
+        );
       });
   }, [specificData, reportTab, groupId, tableSearch]);
 
   function getExportRows() {
-    if (reportType === "person" && selectedPersonId) {
+    if (reportType === "specific" && selectedSpecificPerson) {
+      return specificPersonDays.map((r) => ({
+        "Nombre Completo": selectedSpecificPerson.name,
+        "Código / ID": selectedSpecificPerson.code || "—",
+        [reportTab === "children" ? "Grupo" : "Cargo"]: selectedSpecificPerson.groupOrRole,
+        "Fecha": r.dateFormatted,
+        "Día Hábil": r.dayName,
+        "Estado": r.statusLabel,
+        "Hora de llegada": r.checkIn || "—",
+      }));
+    } else if (reportType === "person" && selectedPersonId) {
       return personHistory.map((r) => ({
         "Persona": selectedPersonName,
         "Fecha": r.dateFormatted,
@@ -394,12 +743,26 @@ export default function ReportsPage() {
         "Hora de llegada": r.checkIn || "—",
       }));
     } else if (reportType === "specific") {
+      const isSingleDay = specificStartDate === specificEndDate;
+      if (isSingleDay) {
+        return filteredSpecificData.map((r) => ({
+          "Nombre Completo": r.name,
+          [reportTab === "children" ? "Grupo" : "Cargo"]: r.groupOrType,
+          "Fecha": r.date,
+          "Asistencia": r.statusLabel,
+          "Hora de llegada": r.checkIn || "—",
+        }));
+      }
       return filteredSpecificData.map((r) => ({
+        "Código": r.code || "—",
         "Nombre Completo": r.name,
         [reportTab === "children" ? "Grupo" : "Cargo"]: r.groupOrType,
-        "Fecha": r.date,
-        "Asistencia": r.statusLabel,
-        "Hora de llegada": r.checkIn || "—",
+        "Desde": specificStartDate,
+        "Hasta": specificEndDate,
+        "Días Hábiles (L-V)": r.totalBusinessDays ?? 0,
+        "Días que Asistió": r.totalPresent ?? 0,
+        "Días que No Asistió": r.totalAbsent ?? 0,
+        "% Asistencia": `${r.percentage ?? 0}%`,
       }));
     } else {
       if (reportTab === "children") {
@@ -424,8 +787,15 @@ export default function ReportsPage() {
   }
 
   function getExportFilename() {
-    if (reportType === "person" && selectedPersonId) return `historial_${selectedPersonName.replace(/\s+/g, "_")}`;
-    if (reportType === "specific") return `reporte_asistencia_${reportTab}_${selectedDate}`;
+    if (reportType === "specific" && selectedSpecificPerson) {
+      return `reporte_asistencia_${selectedSpecificPerson.name.replace(/\s+/g, "_")}_${specificStartDate}_a_${specificEndDate}`;
+    }
+    if (reportType === "person" && selectedPersonId) {
+      return `reporte_asistencia_${selectedPersonName.replace(/\s+/g, "_")}_${personStartDate}_a_${personEndDate}`;
+    }
+    if (reportType === "specific") {
+      return `reporte_asistencia_${reportTab}_${specificStartDate}_a_${specificEndDate}`;
+    }
     return `reporte_asistencia_${reportTab}_${filter}`;
   }
 
@@ -449,45 +819,108 @@ export default function ReportsPage() {
     toast.success("Reporte CSV descargado");
   }
 
-  function handleExportPDF() {
+  async function handleDownloadChildRangePDF(
+    person: PersonOption,
+    start: string,
+    end: string,
+    daysRows: PersonDayRow[],
+    holidaysExcluded: number
+  ) {
+    if (daysRows.length === 0) {
+      toast.error("No hay días hábiles (Lunes a Viernes) en el rango seleccionado");
+      return;
+    }
+    await exportPersonAttendanceRangePDF({
+      personName: person.name,
+      personCode: person.code || undefined,
+      groupOrRole: person.groupOrRole,
+      personTypeLabel: person.type === "child" ? "Niño(a) / Estudiante" : "Personal Institucional",
+      startDate: start,
+      endDate: end,
+      holidaysExcludedCount: holidaysExcluded,
+      rows: daysRows,
+      generatedByName,
+      generatedByRole,
+      filename: `reporte_asistencia_${person.name.replace(/\s+/g, "_")}_${start}_a_${end}`,
+    });
+    toast.success("Reporte PDF de asistencia descargado");
+  }
+
+  async function handleExportPDF() {
+    if (reportType === "specific" && selectedSpecificPerson) {
+      await handleDownloadChildRangePDF(
+        selectedSpecificPerson,
+        specificStartDate,
+        specificEndDate,
+        specificPersonDays,
+        specificHolidaysCount
+      );
+      return;
+    }
+
     if (reportType === "person" && selectedPersonId) {
-      if (personHistory.length === 0) {
+      const person = allPeople.find((p) => p.id === selectedPersonId);
+      if (!person || personHistory.length === 0) {
         toast.error("No hay datos para exportar");
         return;
       }
-      const isStaff = allPeople.find((p) => p.id === selectedPersonId)?.type !== "child";
-      const headers = ["Persona", "Día", "Fecha", "Asistencia", "Hora", ...(isStaff ? ["Firma"] : [])];
-      const rows: PDFDetailRow[] = personHistory.map((r) => ({
-        name: selectedPersonName,
-        groupOrType: r.dayName,
-        date: r.dateFormatted,
-        status: r.statusLabel,
-        checkIn: r.checkIn || "—",
-        signatureDataUrl: isStaff ? r.signatureUrl : undefined,
-      }));
-      exportToPDFDetail(`Historial de Asistencia - ${selectedPersonName}`, headers, rows, getExportFilename(), isStaff);
-      toast.success("Reporte PDF descargado");
-    } else if (reportType === "specific") {
+      await handleDownloadChildRangePDF(
+        person,
+        personStartDate,
+        personEndDate,
+        personHistory,
+        personHolidaysCount
+      );
+      return;
+    }
+
+    if (reportType === "specific") {
       if (filteredSpecificData.length === 0) {
         toast.error("No hay datos para exportar");
         return;
       }
+      const isSingleDay = specificStartDate === specificEndDate;
       const isStaff = reportTab === "staff";
-      const headers = isStaff
-        ? ["Nombre Completo", "Cargo", "Fecha", "Asistencia", "Hora", "Firma"]
-        : ["Nombre Completo", "Grupo", "Fecha", "Asistencia", "Hora"];
-      const rows: PDFDetailRow[] = filteredSpecificData.map((r) => ({
-        name: r.name,
-        groupOrType: r.groupOrType,
-        date: r.date,
-        status: r.statusLabel,
-        checkIn: r.checkIn || "—",
-        signatureDataUrl: isStaff ? r.signatureUrl : undefined,
-      }));
-      const title = isStaff
-        ? `Reporte de Asistencia Personal - ${filteredSpecificData[0]?.date || selectedDate}`
-        : `Reporte de Asistencia Infantil - ${filteredSpecificData[0]?.date || selectedDate}`;
-      exportToPDFDetail(title, headers, rows, getExportFilename(), isStaff);
+      if (isSingleDay) {
+        const headers = isStaff
+          ? ["Nombre Completo", "Cargo", "Fecha", "Asistencia", "Hora", "Firma"]
+          : ["Nombre Completo", "Grupo", "Fecha", "Asistencia", "Hora"];
+        const rows: PDFDetailRow[] = filteredSpecificData.map((r) => ({
+          name: r.name,
+          groupOrType: r.groupOrType,
+          date: r.date,
+          status: r.statusLabel,
+          checkIn: r.checkIn || "—",
+          signatureDataUrl: isStaff ? r.signatureUrl : undefined,
+        }));
+        const title = isStaff
+          ? `Reporte de Asistencia Personal - ${filteredSpecificData[0]?.date || specificStartDate}`
+          : `Reporte de Asistencia Infantil - ${filteredSpecificData[0]?.date || specificStartDate}`;
+        await exportToPDFDetail(title, headers, rows, getExportFilename(), isStaff);
+      } else {
+        await exportToPDF(
+          `Reporte por Fechas (${specificStartDate} a ${specificEndDate})`,
+          [
+            "Código",
+            "Nombre Completo",
+            isStaff ? "Cargo" : "Grupo",
+            "Días Hábiles",
+            "Asistió",
+            "No Asistió",
+            "% Asistencia",
+          ],
+          filteredSpecificData.map((r) => [
+            r.code || "—",
+            r.name,
+            r.groupOrType,
+            String(r.totalBusinessDays ?? 0),
+            String(r.totalPresent ?? 0),
+            String(r.totalAbsent ?? 0),
+            `${r.percentage ?? 0}%`,
+          ]),
+          getExportFilename()
+        );
+      }
       toast.success("Reporte PDF descargado");
     } else {
       if (reportTab === "children") {
@@ -495,10 +928,17 @@ export default function ReportsPage() {
           toast.error("No hay datos para exportar");
           return;
         }
-        exportToPDF(
+        await exportToPDF(
           "Reporte Consolidado de Asistencia Infantil",
           ["Código", "Nombre Completo", "Grupo", "Presentes", "Ausentes", "% Asistencia"],
-          filteredAggregateChildren.map((r) => [r.childCode || "—", r.childName, r.groupName, String(r.totalPresent), String(r.totalAbsent), `${r.percentage}%`]),
+          filteredAggregateChildren.map((r) => [
+            r.childCode || "—",
+            r.childName,
+            r.groupName,
+            String(r.totalPresent),
+            String(r.totalAbsent),
+            `${r.percentage}%`,
+          ]),
           getExportFilename()
         );
       } else {
@@ -506,10 +946,16 @@ export default function ReportsPage() {
           toast.error("No hay datos para exportar");
           return;
         }
-        exportToPDF(
+        await exportToPDF(
           "Reporte Consolidado de Asistencia Personal",
           ["Nombre Completo", "Cargo", "Presentes", "Ausentes", "% Asistencia"],
-          filteredAggregateStaff.map((r) => [r.staffName, r.type, String(r.totalPresent), String(r.totalAbsent), `${r.percentage}%`]),
+          filteredAggregateStaff.map((r) => [
+            r.staffName,
+            r.type,
+            String(r.totalPresent),
+            String(r.totalAbsent),
+            `${r.percentage}%`,
+          ]),
           getExportFilename()
         );
       }
@@ -524,6 +970,18 @@ export default function ReportsPage() {
     setPersonDropdownOpen(false);
   }
 
+  function selectSpecificPerson(person: PersonOption) {
+    setSpecificPersonId(person.id);
+    setSpecificPersonSearch(person.name);
+    setSpecificPersonDropdownOpen(false);
+  }
+
+  function clearSpecificPerson() {
+    setSpecificPersonId("");
+    setSpecificPersonSearch("");
+    setSpecificPersonDays([]);
+  }
+
   const totalPresent = filteredAggregateChildren.reduce((acc, r) => acc + r.totalPresent, 0);
   const totalAbsent = filteredAggregateChildren.reduce((acc, r) => acc + r.totalAbsent, 0);
   const staffTotalPresent = filteredAggregateStaff.reduce((acc, r) => acc + r.totalPresent, 0);
@@ -531,15 +989,33 @@ export default function ReportsPage() {
   const currentPresent = reportTab === "children" ? totalPresent : staffTotalPresent;
   const currentAbsent = reportTab === "children" ? totalAbsent : staffTotalAbsent;
   const currentMonthly = reportTab === "children" ? childrenMonthlyData : staffMonthlyData;
-  const specificPresent = filteredSpecificData.filter((r) => r.status === "present").length;
-  const specificAbsent = filteredSpecificData.filter((r) => r.status === "absent").length;
+
+  const specificPersonPresent = specificPersonDays.filter((r) => r.status === "present").length;
+  const specificPersonAbsent = specificPersonDays.filter((r) => r.status === "absent").length;
+  const specificPersonTotal = specificPersonDays.length;
+  const specificPersonPct =
+    specificPersonTotal > 0 ? Math.round((specificPersonPresent / specificPersonTotal) * 100) : 0;
+
+  const specificPresent = filteredSpecificData.reduce(
+    (acc, r) => acc + (r.totalPresent ?? (r.status === "present" ? 1 : 0)),
+    0
+  );
+  const specificAbsent = filteredSpecificData.reduce(
+    (acc, r) => acc + (r.totalAbsent ?? (r.status === "absent" ? 1 : 0)),
+    0
+  );
+
   const personPresent = personHistory.filter((r) => r.status === "present").length;
   const personAbsent = personHistory.filter((r) => r.status === "absent").length;
   const personTotal = personPresent + personAbsent;
   const personPercentage = personTotal > 0 ? Math.round((personPresent / personTotal) * 100) : 0;
-  const selectedPersonIsStaff = allPeople.find((p) => p.id === selectedPersonId)?.type !== "child";
+  const selectedPersonObj = allPeople.find((p) => p.id === selectedPersonId) || null;
+  const selectedPersonIsStaff = selectedPersonObj ? selectedPersonObj.type !== "child" : false;
 
-  const isWeekend = !isWeekday(selectedDate);
+  const hasBusinessDaysInSpecificRange = useMemo(() => {
+    const { businessDays } = getBusinessDaysBetween(specificStartDate, specificEndDate, customHolidays);
+    return businessDays.length > 0;
+  }, [specificStartDate, specificEndDate, customHolidays]);
 
   if (loading) return <LoadingSpinner label="Generando reportes..." />;
 
@@ -547,32 +1023,115 @@ export default function ReportsPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl gradient-primary flex items-center justify-center shadow-md"><ChartBarIcon className="w-6 h-6 text-white" /></div>
-          <div><h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Reportes y Estadísticas</h1><p className="text-sm text-gray-500 dark:text-gray-400">Análisis detallado de asistencia (Lunes a Viernes)</p></div>
+          <div className="w-11 h-11 rounded-xl gradient-primary flex items-center justify-center shadow-md">
+            <ChartBarIcon className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
+              Reportes y Estadísticas
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Análisis detallado de asistencia (Lunes a Viernes, excluyendo sábados, domingos y festivos)
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={handleExportExcel} className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 shadow-sm flex items-center gap-2 transition-all"><DocumentArrowDownIcon className="w-4 h-4" /> Excel (.xlsx)</button>
-          <button onClick={handleExportCsv} className="px-4 py-2 rounded-xl text-sm font-semibold bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary shadow-sm flex items-center gap-2 transition-all"><DocumentArrowDownIcon className="w-4 h-4" /> CSV</button>
-          <button onClick={handleExportPDF} className="px-4 py-2 rounded-xl text-sm font-semibold bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 hover:bg-red-100 shadow-sm flex items-center gap-2 transition-all"><DocumentArrowDownIcon className="w-4 h-4" /> PDF Oficial</button>
+          <button
+            onClick={handleExportExcel}
+            className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 shadow-sm flex items-center gap-2 transition-all"
+          >
+            <DocumentArrowDownIcon className="w-4 h-4" /> Excel (.xlsx)
+          </button>
+          <button
+            onClick={handleExportCsv}
+            className="px-4 py-2 rounded-xl text-sm font-semibold bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary shadow-sm flex items-center gap-2 transition-all"
+          >
+            <DocumentArrowDownIcon className="w-4 h-4" /> CSV
+          </button>
+          <button
+            onClick={handleExportPDF}
+            className="px-4 py-2 rounded-xl text-sm font-semibold bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 hover:bg-red-100 shadow-sm flex items-center gap-2 transition-all"
+          >
+            <DocumentArrowDownIcon className="w-4 h-4" /> PDF Oficial
+          </button>
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => { setReportTab("children"); setSelectedPersonId(null); setPersonSearch(""); setPersonHistory([]); setTableSearch(""); }} className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${reportTab === "children" ? "gradient-primary text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
-          <span className="flex items-center gap-2"><UserGroupIcon className="w-4 h-4" /> Niños</span>
+        <button
+          onClick={() => {
+            setReportTab("children");
+            setSelectedPersonId(null);
+            setPersonSearch("");
+            setPersonHistory([]);
+            clearSpecificPerson();
+            setTableSearch("");
+          }}
+          className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
+            reportTab === "children"
+              ? "gradient-primary text-white shadow-md"
+              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <UserGroupIcon className="w-4 h-4" /> Niños
+          </span>
         </button>
-        <button onClick={() => { setReportTab("staff"); setSelectedPersonId(null); setPersonSearch(""); setPersonHistory([]); setTableSearch(""); }} className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${reportTab === "staff" ? "gradient-primary text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
-          <span className="flex items-center gap-2"><AcademicCapIcon className="w-4 h-4" /> Personal</span>
+        <button
+          onClick={() => {
+            setReportTab("staff");
+            setSelectedPersonId(null);
+            setPersonSearch("");
+            setPersonHistory([]);
+            clearSpecificPerson();
+            setTableSearch("");
+          }}
+          className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
+            reportTab === "staff"
+              ? "gradient-primary text-white shadow-md"
+              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <AcademicCapIcon className="w-4 h-4" /> Personal
+          </span>
         </button>
         <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
-        <button onClick={() => setReportType("aggregate")} className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${reportType === "aggregate" ? "gradient-success text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
-          <span className="flex items-center gap-2"><TableCellsIcon className="w-4 h-4" /> Consolidado</span>
+        <button
+          onClick={() => setReportType("aggregate")}
+          className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
+            reportType === "aggregate"
+              ? "gradient-success text-white shadow-md"
+              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <TableCellsIcon className="w-4 h-4" /> Consolidado
+          </span>
         </button>
-        <button onClick={() => setReportType("specific")} className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${reportType === "specific" ? "gradient-success text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
-          <span className="flex items-center gap-2"><CalendarDaysIcon className="w-4 h-4" /> Por Fecha</span>
+        <button
+          onClick={() => setReportType("specific")}
+          className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
+            reportType === "specific"
+              ? "gradient-success text-white shadow-md"
+              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <CalendarDaysIcon className="w-4 h-4" /> Por Fecha
+          </span>
         </button>
-        <button onClick={() => setReportType("person")} className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${reportType === "person" ? "gradient-success text-white shadow-md" : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
-          <span className="flex items-center gap-2"><UserIcon className="w-4 h-4" /> Por Persona</span>
+        <button
+          onClick={() => setReportType("person")}
+          className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
+            reportType === "person"
+              ? "gradient-success text-white shadow-md"
+              : "bg-white dark:bg-[#1a2438] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <UserIcon className="w-4 h-4" /> Por Persona
+          </span>
         </button>
       </div>
 
@@ -580,48 +1139,102 @@ export default function ReportsPage() {
         <>
           <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-[#1a2438] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
             {(["day", "week", "month", "year", "custom"] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={`px-3.5 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${filter === f ? "gradient-primary text-white shadow-md" : "bg-gray-50 dark:bg-[#0c1220] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"}`}>
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3.5 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 ${
+                  filter === f
+                    ? "gradient-primary text-white shadow-md"
+                    : "bg-gray-50 dark:bg-[#0c1220] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-primary"
+                }`}
+              >
                 {f === "day" ? "Hoy" : f === "week" ? "Semana" : f === "month" ? "Mes" : f === "year" ? "Año" : "Rango personalizado"}
               </button>
             ))}
             {filter === "custom" && (
               <div className="flex flex-wrap items-center gap-2 ml-1">
-                <input type="date" value={customStartDate} max={customEndDate} onChange={(e) => setCustomStartDate(e.target.value)} aria-label="Fecha desde" className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600" />
+                <input
+                  type="date"
+                  value={customStartDate}
+                  max={customEndDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  aria-label="Fecha desde"
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600"
+                />
                 <span className="text-xs text-gray-400">a</span>
-                <input type="date" value={customEndDate} min={customStartDate} max={today} onChange={(e) => setCustomEndDate(e.target.value)} aria-label="Fecha hasta" className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600" />
+                <input
+                  type="date"
+                  value={customEndDate}
+                  min={customStartDate}
+                  max={today}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  aria-label="Fecha hasta"
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600"
+                />
               </div>
             )}
             {reportTab === "children" && (
               <div className="flex items-center gap-2 ml-auto">
-                <label htmlFor="reports-group-filter" className="text-xs font-semibold text-gray-500 dark:text-gray-400">Grupo:</label>
-                <select id="reports-group-filter" value={groupId} onChange={(e) => setGroupId(e.target.value)} aria-label="Filtrar por grupo" className="px-3.5 py-2 rounded-xl text-[13px] font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
+                <label htmlFor="reports-group-filter" className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                  Grupo:
+                </label>
+                <select
+                  id="reports-group-filter"
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  aria-label="Filtrar por grupo"
+                  className="px-3.5 py-2 rounded-xl text-[13px] font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
+                >
                   <option value="all">Todos los grupos</option>
-                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center"><p className="text-3xl font-bold text-gray-900 dark:text-white">{reportTab === "children" ? filteredAggregateChildren.length : filteredAggregateStaff.length}</p><p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">{reportTab === "children" ? "Niños evaluados" : "Personal evaluado"}</p></div>
-            <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center"><p className="text-3xl font-bold text-emerald-500">{currentPresent}</p><p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Total asistencias</p></div>
-            <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center"><p className="text-3xl font-bold text-red-500">{currentAbsent}</p><p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Total ausencias</p></div>
+            <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                {reportTab === "children" ? filteredAggregateChildren.length : filteredAggregateStaff.length}
+              </p>
+              <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                {reportTab === "children" ? "Niños evaluados" : "Personal evaluado"}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+              <p className="text-3xl font-bold text-emerald-500">{currentPresent}</p>
+              <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Total asistencias</p>
+            </div>
+            <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+              <p className="text-3xl font-bold text-red-500">{currentAbsent}</p>
+              <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Total ausencias</p>
+            </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
               <h3 className="mb-4 text-base font-bold text-gray-900 dark:text-white">Tendencia Mensual (Últimos 6 meses)</h3>
-              <div className="h-64"><DynamicBarChart data={currentMonthly} /></div>
+              <div className="h-64">
+                <DynamicBarChart data={currentMonthly} />
+              </div>
             </div>
             <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
               <h3 className="mb-4 text-base font-bold text-gray-900 dark:text-white">Distribución del Período</h3>
-              <div className="h-64 flex items-center justify-center"><DynamicPieChart present={currentPresent} absent={currentAbsent} /></div>
+              <div className="h-64 flex items-center justify-center">
+                <DynamicPieChart present={currentPresent} absent={currentAbsent} />
+              </div>
             </div>
           </div>
 
           <div className="bg-white dark:bg-[#1a2438] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Detalle por {reportTab === "children" ? "Estudiante" : "Miembro del Personal"}</h3>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                Detalle por {reportTab === "children" ? "Estudiante" : "Miembro del Personal"}
+              </h3>
               <div className="relative w-full sm:w-72">
                 <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
@@ -635,114 +1248,602 @@ export default function ReportsPage() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="border-b border-gray-100 dark:border-gray-800">
-                  {reportTab === "children" && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Código</th>}
-                  <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Nombre</th>
-                  {reportTab === "children" && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Grupo</th>}
-                  {reportTab === "staff" && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Cargo</th>}
-                  <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Presentes</th>
-                  <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Ausentes</th>
-                  <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">% Asistencia</th>
-                </tr></thead>
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-800">
+                    {reportTab === "children" && (
+                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Código</th>
+                    )}
+                    <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Nombre</th>
+                    {reportTab === "children" && (
+                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Grupo</th>
+                    )}
+                    {reportTab === "staff" && (
+                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Cargo</th>
+                    )}
+                    <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Presentes</th>
+                    <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Ausentes</th>
+                    <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">% Asistencia</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {reportTab === "children" ? filteredAggregateChildren.map((r, i) => (
-                    <tr key={i} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors">
-                      <td className="px-5 py-3.5"><span className="px-2 py-0.5 rounded text-xs font-bold bg-primary/10 text-primary">{r.childCode || "—"}</span></td>
-                      <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.childName}</td>
-                      <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{r.groupName}</td>
-                      <td className="px-5 py-3.5 text-center font-bold text-emerald-500">{r.totalPresent}</td>
-                      <td className="px-5 py-3.5 text-center font-bold text-red-500">{r.totalAbsent}</td>
-                      <td className="px-5 py-3.5 text-center"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${r.percentage >= 80 ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : r.percentage >= 60 ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"}`}>{r.percentage}%</span></td>
-                    </tr>
-                  )) : filteredAggregateStaff.map((r, i) => (
-                    <tr key={i} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors">
-                      <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.staffName}</td>
-                      <td className="px-5 py-3.5"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${r.type === "Profesor" ? "bg-primary/10 text-primary" : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"}`}>{r.type}</span></td>
-                      <td className="px-5 py-3.5 text-center font-bold text-emerald-500">{r.totalPresent}</td>
-                      <td className="px-5 py-3.5 text-center font-bold text-red-500">{r.totalAbsent}</td>
-                      <td className="px-5 py-3.5 text-center"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${r.percentage >= 80 ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : r.percentage >= 60 ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"}`}>{r.percentage}%</span></td>
-                    </tr>
-                  ))}
+                  {reportTab === "children"
+                    ? filteredAggregateChildren.map((r, i) => (
+                        <tr
+                          key={i}
+                          className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors"
+                        >
+                          <td className="px-5 py-3.5">
+                            <span className="px-2 py-0.5 rounded text-xs font-bold bg-primary/10 text-primary">
+                              {r.childCode || "—"}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.childName}</td>
+                          <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400">{r.groupName}</td>
+                          <td className="px-5 py-3.5 text-center font-bold text-emerald-500">{r.totalPresent}</td>
+                          <td className="px-5 py-3.5 text-center font-bold text-red-500">{r.totalAbsent}</td>
+                          <td className="px-5 py-3.5 text-center">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                r.percentage >= 80
+                                  ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                  : r.percentage >= 60
+                                  ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
+                                  : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                              }`}
+                            >
+                              {r.percentage}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    : filteredAggregateStaff.map((r, i) => (
+                        <tr
+                          key={i}
+                          className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors"
+                        >
+                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.staffName}</td>
+                          <td className="px-5 py-3.5">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                r.type === "Profesor"
+                                  ? "bg-primary/10 text-primary"
+                                  : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
+                              }`}
+                            >
+                              {r.type}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center font-bold text-emerald-500">{r.totalPresent}</td>
+                          <td className="px-5 py-3.5 text-center font-bold text-red-500">{r.totalAbsent}</td>
+                          <td className="px-5 py-3.5 text-center">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                r.percentage >= 80
+                                  ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                  : r.percentage >= 60
+                                  ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
+                                  : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                              }`}
+                            >
+                              {r.percentage}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>
-            {(reportTab === "children" ? filteredAggregateChildren.length === 0 : filteredAggregateStaff.length === 0) && <div className="py-12 text-center text-gray-500 dark:text-gray-400">No hay datos para mostrar en este período.</div>}
+            {(reportTab === "children" ? filteredAggregateChildren.length === 0 : filteredAggregateStaff.length === 0) && (
+              <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+                No hay datos para mostrar en este período.
+              </div>
+            )}
           </div>
         </>
       )}
 
       {reportType === "specific" && (
         <>
-          <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-[#1a2438] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-            <label htmlFor="reports-date" className="text-sm font-semibold text-gray-900 dark:text-white">Seleccionar fecha:</label>
-            <input id="reports-date" type="date" value={selectedDate} max={today} onChange={(e) => setSelectedDate(e.target.value)} aria-label="Seleccionar fecha para reporte" className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
-            {reportTab === "children" && (
-              <select value={groupId} onChange={(e) => setGroupId(e.target.value)} aria-label="Filtrar por grupo" className="px-3.5 py-2 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
-                <option value="all">Todos los grupos</option>
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            )}
-            <div className="relative flex-1 min-w-[200px]">
-              <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-                placeholder="Buscar persona..."
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
+          {/* Panel de filtros Por Fecha: Rango Desde - Hasta + Selección de Niño/Persona */}
+          <div className="bg-white dark:bg-[#1a2438] p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+              {/* Rango de fechas Desde - Hasta */}
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label
+                    htmlFor="specific-start-date"
+                    className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+                  >
+                    Fecha Desde
+                  </label>
+                  <input
+                    id="specific-start-date"
+                    type="date"
+                    value={specificStartDate}
+                    max={specificEndDate || today}
+                    onChange={(e) => setSpecificStartDate(e.target.value)}
+                    className="px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="specific-end-date"
+                    className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+                  >
+                    Fecha Hasta
+                  </label>
+                  <input
+                    id="specific-end-date"
+                    type="date"
+                    value={specificEndDate}
+                    min={specificStartDate}
+                    max={today}
+                    onChange={(e) => setSpecificEndDate(e.target.value)}
+                    className="px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Filtro por grupo */}
+              {reportTab === "children" && (
+                <div>
+                  <label
+                    htmlFor="specific-group-select"
+                    className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+                  >
+                    Grupo
+                  </label>
+                  <select
+                    id="specific-group-select"
+                    value={groupId}
+                    onChange={(e) => {
+                      setGroupId(e.target.value);
+                      clearSpecificPerson();
+                    }}
+                    className="px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
+                  >
+                    <option value="all">Todos los grupos</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Selector buscador de Niño / Persona dentro de "Por Fecha" */}
+              <div className="relative flex-1 min-w-[260px]">
+                <label
+                  htmlFor="specific-person-search"
+                  className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+                >
+                  {reportTab === "children" ? "Niño(a) / Estudiante a Consultar" : "Persona a Consultar"}
+                </label>
+                <div className="relative">
+                  <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="specific-person-search"
+                    type="text"
+                    value={specificPersonSearch}
+                    onFocus={() => setSpecificPersonDropdownOpen(true)}
+                    onChange={(e) => {
+                      setSpecificPersonSearch(e.target.value);
+                      setSpecificPersonDropdownOpen(true);
+                      if (!e.target.value.trim()) {
+                        setSpecificPersonId("");
+                        setSpecificPersonDays([]);
+                      }
+                    }}
+                    placeholder={
+                      reportTab === "children"
+                        ? "Buscar y seleccionar niño por nombre o código (CT001)..."
+                        : "Buscar y seleccionar personal..."
+                    }
+                    className="w-full pl-9 pr-9 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  {(specificPersonId || specificPersonSearch) && (
+                    <button
+                      type="button"
+                      onClick={clearSpecificPerson}
+                      title="Ver todos"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {specificPersonDropdownOpen && specificPersonResults.length > 0 && (
+                  <div className="absolute z-50 mt-1 w-full bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearSpecificPerson();
+                        setSpecificPersonDropdownOpen(false);
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-primary hover:bg-gray-50 dark:hover:bg-[#1e293b] border-b border-gray-100 dark:border-gray-800"
+                    >
+                      Ver listado general ({peopleForCurrentTab.length})
+                    </button>
+                    {specificPersonResults.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => selectSpecificPerson(p)}
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
+                      >
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{p.subtitle}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400">
+              <span>
+                Se evalúan exclusivamente los días de <strong>Lunes a Viernes</strong> (exceptuando sábados, domingos y festivos).
+                {specificHolidaysCount > 0 && (
+                  <strong className="ml-1 text-amber-600 dark:text-amber-400">
+                    · {specificHolidaysCount} día(s) festivo(s) excluido(s) en este rango.
+                  </strong>
+                )}
+              </span>
+              {selectedSpecificPerson && (
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  Reporte generado por: <strong>{generatedByName}</strong> ({generatedByRole})
+                </span>
+              )}
             </div>
           </div>
-          {isWeekend ? (
+
+          {!hasBusinessDaysInSpecificRange ? (
             <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
               <CalendarDaysIcon className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" />
-              <p className="text-gray-700 dark:text-gray-300 font-medium">No se registra asistencia los fines de semana</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">La atención es de Lunes a Viernes</p>
+              <p className="text-gray-700 dark:text-gray-300 font-medium">
+                No hay días hábiles (Lunes a Viernes sin festivos) en el rango seleccionado
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Los sábados, domingos y días festivos están excluidos del reporte.
+              </p>
             </div>
-          ) : (
+          ) : selectedSpecificPerson ? (
+            /* Vista detallada del Niño / Persona seleccionado en el rango Desde - Hasta */
             <>
-              <div className="grid gap-4 lg:grid-cols-3">
-                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center"><p className="text-3xl font-bold text-gray-900 dark:text-white">{filteredSpecificData.length}</p><p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">{reportTab === "children" ? "Niños" : "Personal"}</p></div>
-                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center"><p className="text-3xl font-bold text-emerald-500">{specificPresent}</p><p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Presentes</p></div>
-                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center"><p className="text-3xl font-bold text-red-500">{specificAbsent}</p><p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Ausentes</p></div>
+              <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-primary/20 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                      {selectedSpecificPerson.name}
+                    </h2>
+                    {selectedSpecificPerson.code && (
+                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-primary/10 text-primary">
+                        ID: {selectedSpecificPerson.code}
+                      </span>
+                    )}
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                      {selectedSpecificPerson.groupOrRole}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Período filtrado: <strong>{specificStartDate}</strong> hasta <strong>{specificEndDate}</strong> · Solo Lunes a Viernes (sin sábados, domingos ni festivos)
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDownloadChildRangePDF(
+                        selectedSpecificPerson,
+                        specificStartDate,
+                        specificEndDate,
+                        specificPersonDays,
+                        specificHolidaysCount
+                      )
+                    }
+                    className="px-4 py-2.5 rounded-xl text-sm font-bold gradient-primary text-white shadow-md hover:opacity-95 flex items-center gap-2 transition-all"
+                  >
+                    <DocumentArrowDownIcon className="w-5 h-5" />
+                    Descargar PDF (Días que Asistió y No Asistió)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearSpecificPerson}
+                    className="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                  >
+                    Cambiar niño / Ver todos
+                  </button>
+                </div>
               </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white">{specificPersonTotal}</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                    Días Hábiles (Lun - Vie)
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-emerald-200/60 dark:border-emerald-800/50 shadow-sm text-center">
+                  <p className="text-3xl font-bold text-emerald-500">{specificPersonPresent}</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                    Días que Asistió
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-red-200/60 dark:border-red-800/50 shadow-sm text-center">
+                  <p className="text-3xl font-bold text-red-500">{specificPersonAbsent}</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                    Días que No Asistió
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+                  <p
+                    className={`text-3xl font-bold ${
+                      specificPersonPct >= 80
+                        ? "text-emerald-500"
+                        : specificPersonPct >= 60
+                        ? "text-amber-500"
+                        : "text-red-500"
+                    }`}
+                  >
+                    {specificPersonPct}%
+                  </p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">% de Asistencia</p>
+                </div>
+              </div>
+
+              {/* Resumen visual rápido de fechas en que Asistió vs No Asistió */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="bg-emerald-50/50 dark:bg-emerald-950/20 rounded-2xl p-4 border border-emerald-200/70 dark:border-emerald-800/50">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <CheckCircleIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    <h4 className="text-sm font-bold text-emerald-900 dark:text-emerald-300">
+                      Días que Asistió ({specificPersonPresent})
+                    </h4>
+                  </div>
+                  {specificPersonPresent > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                      {specificPersonDays
+                        .filter((d) => d.status === "present")
+                        .map((d) => (
+                          <span
+                            key={d.date}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-[#1a2438] text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-sm capitalize"
+                          >
+                            {d.dayName} {d.date}
+                          </span>
+                        ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-emerald-700/70 dark:text-emerald-400/70">
+                      Ninguna asistencia registrada en este rango de fechas.
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-red-50/50 dark:bg-red-950/20 rounded-2xl p-4 border border-red-200/70 dark:border-red-800/50">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <XCircleIcon className="w-5 h-5 text-red-600 dark:text-red-400" />
+                    <h4 className="text-sm font-bold text-red-900 dark:text-red-300">
+                      Días que No Asistió ({specificPersonAbsent})
+                    </h4>
+                  </div>
+                  {specificPersonAbsent > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                      {specificPersonDays
+                        .filter((d) => d.status === "absent")
+                        .map((d) => (
+                          <span
+                            key={d.date}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-[#1a2438] text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 shadow-sm capitalize"
+                          >
+                            {d.dayName} {d.date}
+                          </span>
+                        ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-red-700/70 dark:text-red-400/70">
+                      Sin inasistencias en este rango de fechas. ¡Asistencia perfecta!
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Tabla detallada día por día */}
               <div className="bg-white dark:bg-[#1a2438] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                      Detalle Día por Día — {selectedSpecificPerson.name}
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Listado completo de Lunes a Viernes (sin sábados, domingos ni festivos)
+                    </p>
+                  </div>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead><tr className="border-b border-gray-100 dark:border-gray-800">
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Nombre Completo</th>
-                      {reportTab === "children" && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Grupo</th>}
-                      {reportTab === "staff" && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Cargo</th>}
-                      <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Asistencia</th>
-                      <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Hora</th>
-                      {reportTab === "staff" && <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Firma</th>}
-                    </tr></thead>
+                    <thead>
+                      <tr className="border-b border-gray-100 dark:border-gray-800">
+                        <th className="text-center px-4 py-3.5 font-semibold text-gray-500 dark:text-gray-400 w-14">N°</th>
+                        <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Fecha</th>
+                        <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Día Hábil</th>
+                        <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Estado</th>
+                        <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Hora de Llegada</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {filteredSpecificData.map((r, i) => (
-                        <tr key={i} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors">
-                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.name}</td>
-                          <td className="px-5 py-3.5">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${reportTab === "staff" ? (r.groupOrType === "Profesor" ? "bg-primary/10 text-primary" : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400") : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>{r.groupOrType}</span>
+                      {specificPersonDays.map((r, i) => (
+                        <tr
+                          key={r.date}
+                          className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors"
+                        >
+                          <td className="px-4 py-3.5 text-center text-xs font-semibold text-gray-400">
+                            {i + 1}
                           </td>
+                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.dateFormatted}</td>
+                          <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400 capitalize">{r.dayName}</td>
                           <td className="px-5 py-3.5 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${r.status === "present" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"}`}>{r.statusLabel}</span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${
+                                r.status === "present"
+                                  ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                  : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                              }`}
+                            >
+                              {r.statusLabel}
+                            </span>
                           </td>
                           <td className="px-5 py-3.5 text-center text-xs text-gray-500 dark:text-gray-400">
                             {r.checkIn || "—"}
                           </td>
-                          {reportTab === "staff" && (
-                            <td className="px-5 py-3.5 text-center">
-                              {r.signatureUrl && r.signatureUrl.startsWith("data:image") ? (
-                                <img src={r.signatureUrl} alt="Firma" className="h-8 mx-auto rounded border border-gray-200 dark:border-gray-700 bg-white" />
-                              ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                            </td>
-                          )}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {filteredSpecificData.length === 0 && <div className="py-12 text-center text-gray-500 dark:text-gray-400">No hay registros de asistencia para esta fecha.</div>}
+              </div>
+            </>
+          ) : (
+            /* Vista general del rango de fechas cuando aún no se ha elegido un niño específico */
+            <>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white">{filteredSpecificData.length}</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                    {reportTab === "children" ? "Niños en el listado" : "Personal en el listado"}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+                  <p className="text-3xl font-bold text-emerald-500">{specificPresent}</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                    Total Días Asistidos en el Rango
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
+                  <p className="text-3xl font-bold text-red-500">{specificAbsent}</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">
+                    Total Días No Asistidos en el Rango
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-[#1a2438] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                      Resumen por {reportTab === "children" ? "Niño(a)" : "Personal"} ({specificStartDate} a {specificEndDate})
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Haz clic en <strong>&quot;Ver días / Descargar PDF&quot;</strong> en cualquier fila para ver el detalle día a día y descargar su PDF individual.
+                    </p>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={tableSearch}
+                      onChange={(e) => setTableSearch(e.target.value)}
+                      placeholder="Filtrar en la tabla..."
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 dark:border-gray-800">
+                        {reportTab === "children" && (
+                          <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Código</th>
+                        )}
+                        <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Nombre Completo</th>
+                        <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">
+                          {reportTab === "children" ? "Grupo" : "Cargo"}
+                        </th>
+                        <th className="text-center px-4 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Días Hábiles</th>
+                        <th className="text-center px-4 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Asistió</th>
+                        <th className="text-center px-4 py-3.5 font-semibold text-gray-500 dark:text-gray-400">No Asistió</th>
+                        <th className="text-center px-4 py-3.5 font-semibold text-gray-500 dark:text-gray-400">%</th>
+                        <th className="text-right px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSpecificData.map((r) => (
+                        <tr
+                          key={r.id}
+                          className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors"
+                        >
+                          {reportTab === "children" && (
+                            <td className="px-5 py-3.5">
+                              <span className="px-2 py-0.5 rounded text-xs font-bold bg-primary/10 text-primary">
+                                {r.code || "—"}
+                              </span>
+                            </td>
+                          )}
+                          <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.name}</td>
+                          <td className="px-5 py-3.5">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                reportTab === "staff"
+                                  ? r.groupOrType === "Profesor"
+                                    ? "bg-primary/10 text-primary"
+                                    : "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
+                                  : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                              }`}
+                            >
+                              {r.groupOrType}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-center font-semibold text-gray-700 dark:text-gray-300">
+                            {r.totalBusinessDays ?? 0}
+                          </td>
+                          <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400">
+                            {r.totalPresent ?? 0}
+                          </td>
+                          <td className="px-4 py-3.5 text-center font-bold text-red-600 dark:text-red-400">
+                            {r.totalAbsent ?? 0}
+                          </td>
+                          <td className="px-4 py-3.5 text-center">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                (r.percentage ?? 0) >= 80
+                                  ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                  : (r.percentage ?? 0) >= 60
+                                  ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
+                                  : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                              }`}
+                            >
+                              {r.percentage ?? 0}%
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const found = allPeople.find((p) => p.id === r.id);
+                                if (found) {
+                                  selectSpecificPerson(found);
+                                } else {
+                                  setSpecificPersonId(r.id);
+                                  setSpecificPersonSearch(r.name);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-primary/10 text-primary hover:bg-primary hover:text-white transition-all"
+                            >
+                              Ver días / PDF
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {filteredSpecificData.length === 0 && (
+                  <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+                    No hay registros de asistencia para este filtro.
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -751,82 +1852,200 @@ export default function ReportsPage() {
 
       {reportType === "person" && (
         <>
-          <div className="relative max-w-md">
-            <MagnifyingGlassIcon className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-            <input
-              type="text"
-              placeholder={reportTab === "children" ? "Buscar niño por nombre o ID (CT001...)..." : "Buscar personal por nombre o documento..."}
-              aria-label="Buscar persona"
-              value={personSearch}
-              onFocus={() => setPersonDropdownOpen(true)}
-              onChange={(e) => {
-                setPersonSearch(e.target.value);
-                setPersonDropdownOpen(true);
-                setSelectedPersonId(null);
-                setPersonHistory([]);
-              }}
-              className="w-full px-4 py-3 pl-11 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
-            />
-            {personResults.length > 0 && (
-              <div className="absolute z-50 mt-1 w-full bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg max-h-64 overflow-y-auto">
-                {personResults.map((p) => (
-                  <button key={p.id} onClick={() => selectPerson(p)} className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{p.subtitle}</p>
-                  </button>
-                ))}
+          <div className="bg-white dark:bg-[#1a2438] p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col lg:flex-row lg:items-end gap-4">
+            <div className="relative flex-1 min-w-[260px]">
+              <label
+                htmlFor="person-tab-search"
+                className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+              >
+                {reportTab === "children" ? "Buscar Niño(a)" : "Buscar Personal"}
+              </label>
+              <div className="relative">
+                <MagnifyingGlassIcon
+                  className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                  aria-hidden="true"
+                />
+                <input
+                  id="person-tab-search"
+                  type="text"
+                  placeholder={
+                    reportTab === "children"
+                      ? "Buscar niño por nombre o ID (CT001...)..."
+                      : "Buscar personal por nombre o documento..."
+                  }
+                  aria-label="Buscar persona"
+                  value={personSearch}
+                  onFocus={() => setPersonDropdownOpen(true)}
+                  onChange={(e) => {
+                    setPersonSearch(e.target.value);
+                    setPersonDropdownOpen(true);
+                    setSelectedPersonId(null);
+                    setPersonHistory([]);
+                  }}
+                  className="w-full px-4 py-2.5 pl-11 border border-gray-300 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                />
               </div>
-            )}
+              {personResults.length > 0 && (
+                <div className="absolute z-50 mt-1 w-full bg-white dark:bg-[#1a2438] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                  {personResults.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => selectPerson(p)}
+                      className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
+                    >
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{p.subtitle}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label
+                  htmlFor="person-start-date"
+                  className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+                >
+                  Fecha Desde
+                </label>
+                <input
+                  id="person-start-date"
+                  type="date"
+                  value={personStartDate}
+                  max={personEndDate || today}
+                  onChange={(e) => setPersonStartDate(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="person-end-date"
+                  className="block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"
+                >
+                  Fecha Hasta
+                </label>
+                <input
+                  id="person-end-date"
+                  type="date"
+                  value={personEndDate}
+                  min={personStartDate}
+                  max={today}
+                  onChange={(e) => setPersonEndDate(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-gray-50 dark:bg-[#0c1220] text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700"
+                />
+              </div>
+            </div>
           </div>
 
-          {selectedPersonId ? (
+          {selectedPersonId && selectedPersonObj ? (
             <>
+              <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-primary/20 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">{selectedPersonName}</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Período: <strong>{personStartDate}</strong> a <strong>{personEndDate}</strong> · Solo días de Lunes a Viernes (sin sábados, domingos ni festivos)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleDownloadChildRangePDF(
+                      selectedPersonObj,
+                      personStartDate,
+                      personEndDate,
+                      personHistory,
+                      personHolidaysCount
+                    )
+                  }
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold gradient-primary text-white shadow-md hover:opacity-95 flex items-center gap-2 transition-all"
+                >
+                  <DocumentArrowDownIcon className="w-5 h-5" />
+                  Descargar PDF (Días que Asistió y No Asistió)
+                </button>
+              </div>
+
               <div className="grid gap-4 lg:grid-cols-4">
                 <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
                   <p className="text-3xl font-bold text-gray-900 dark:text-white">{personTotal}</p>
-                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Días registrados</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Días Hábiles (L-V)</p>
                 </div>
                 <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
                   <p className="text-3xl font-bold text-emerald-500">{personPresent}</p>
-                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Asistencias</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Días que Asistió</p>
                 </div>
                 <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
                   <p className="text-3xl font-bold text-red-500">{personAbsent}</p>
-                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Inasistencias</p>
+                  <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">Días que No Asistió</p>
                 </div>
                 <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
-                  <p className={`text-3xl font-bold ${personPercentage >= 80 ? "text-emerald-500" : personPercentage >= 60 ? "text-amber-500" : "text-red-500"}`}>{personPercentage}%</p>
+                  <p
+                    className={`text-3xl font-bold ${
+                      personPercentage >= 80
+                        ? "text-emerald-500"
+                        : personPercentage >= 60
+                        ? "text-amber-500"
+                        : "text-red-500"
+                    }`}
+                  >
+                    {personPercentage}%
+                  </p>
                   <p className="text-[12px] font-medium text-gray-500 dark:text-gray-400">% Asistencia</p>
                 </div>
               </div>
               <div className="bg-white dark:bg-[#1a2438] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800">
                   <h3 className="text-base font-bold text-gray-900 dark:text-white">Historial de {selectedPersonName}</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Solo días laborales (Lunes a Viernes)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Solo días laborales de Lunes a Viernes (excluyendo sábados, domingos y festivos)
+                  </p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead><tr className="border-b border-gray-100 dark:border-gray-800">
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Fecha</th>
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Día</th>
-                      <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Estado</th>
-                      <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Hora</th>
-                      {selectedPersonIsStaff && <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Firma</th>}
-                    </tr></thead>
+                    <thead>
+                      <tr className="border-b border-gray-100 dark:border-gray-800">
+                        <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Fecha</th>
+                        <th className="text-left px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Día</th>
+                        <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Estado</th>
+                        <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Hora</th>
+                        {selectedPersonIsStaff && (
+                          <th className="text-center px-5 py-3.5 font-semibold text-gray-500 dark:text-gray-400">Firma</th>
+                        )}
+                      </tr>
+                    </thead>
                     <tbody>
                       {personHistory.map((r, i) => (
-                        <tr key={i} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors">
+                        <tr
+                          key={i}
+                          className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-[#1e293b] transition-colors"
+                        >
                           <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{r.dateFormatted}</td>
                           <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400 capitalize">{r.dayName}</td>
                           <td className="px-5 py-3.5 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${r.status === "present" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"}`}>{r.statusLabel}</span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                r.status === "present"
+                                  ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                  : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                              }`}
+                            >
+                              {r.statusLabel}
+                            </span>
                           </td>
-                          <td className="px-5 py-3.5 text-center text-xs text-gray-500 dark:text-gray-400">{r.checkIn || "—"}</td>
+                          <td className="px-5 py-3.5 text-center text-xs text-gray-500 dark:text-gray-400">
+                            {r.checkIn || "—"}
+                          </td>
                           {selectedPersonIsStaff && (
                             <td className="px-5 py-3.5 text-center">
                               {r.signatureUrl && r.signatureUrl.startsWith("data:image") ? (
-                                <img src={r.signatureUrl} alt="Firma" className="h-8 mx-auto rounded border border-gray-200 dark:border-gray-700 bg-white" />
-                              ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                                <img
+                                  src={r.signatureUrl}
+                                  alt="Firma"
+                                  className="h-8 mx-auto rounded border border-gray-200 dark:border-gray-700 bg-white"
+                                />
+                              ) : (
+                                <span className="text-gray-300 dark:text-gray-600">—</span>
+                              )}
                             </td>
                           )}
                         </tr>
@@ -834,14 +2053,20 @@ export default function ReportsPage() {
                     </tbody>
                   </table>
                 </div>
-                {personHistory.length === 0 && <div className="py-12 text-center text-gray-500 dark:text-gray-400">No hay registros de asistencia para esta persona.</div>}
+                {personHistory.length === 0 && (
+                  <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+                    No hay días hábiles en este rango para mostrar.
+                  </div>
+                )}
               </div>
             </>
           ) : (
             <div className="bg-white dark:bg-[#1a2438] rounded-2xl p-12 border border-gray-100 dark:border-gray-800 shadow-sm text-center">
               <UserIcon className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" />
-              <p className="text-gray-700 dark:text-gray-300 font-medium">Busca una persona para ver su historial</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{reportTab === "children" ? "Puedes buscar por nombre o código (CT001...)" : "Busca por nombre o documento"}</p>
+              <p className="text-gray-700 dark:text-gray-300 font-medium">Busca una persona para ver su historial por rango de fechas</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {reportTab === "children" ? "Puedes buscar por nombre o código (CT001...)" : "Busca por nombre o documento"}
+              </p>
             </div>
           )}
         </>
