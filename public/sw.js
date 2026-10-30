@@ -1,9 +1,14 @@
-const CACHE_NAME = "asistencia-v2";
+const CACHE_NAME = "asistencia-v3";
 const STATIC_ASSETS = [
   "/manifest.json",
   "/logo.png",
-  "/icons/icon-192.svg",
-  "/icons/icon-512.svg",
+  "/favicon.ico",
+  "/icons/favicon-32x32.png",
+  "/icons/apple-touch-icon.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/icon-maskable-192.png",
+  "/icons/icon-maskable-512.png",
 ];
 
 self.addEventListener("install", (event) => {

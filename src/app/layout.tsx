@@ -9,6 +9,17 @@ export const metadata: Metadata = {
   title: "Casita de Tareas | Sistema de Asistencia",
   description: "La alegría del conocimiento, enseñando con amor - Sistema de control de asistencia y talento humano",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=2", sizes: "any" },
+      { url: "/icons/favicon-32x32.png?v=2", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png?v=2", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: ["/favicon.ico?v=2"],
+    apple: [
+      { url: "/icons/apple-touch-icon.png?v=2", sizes: "180x180", type: "image/png" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
