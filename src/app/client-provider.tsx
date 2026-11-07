@@ -103,10 +103,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-[#0c1220]">
+    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden bg-gray-50 dark:bg-[#0c1220]">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="flex-1 min-w-0">
-        <header className="sticky top-0 z-30 glass border-b border-gray-200/80 dark:border-gray-800 backdrop-blur-md bg-white/80 dark:bg-[#0c1220]/80">
+      <main className="flex-1 min-w-0 flex flex-col lg:h-full lg:overflow-y-auto">
+        <header className="sticky top-0 z-30 glass border-b border-gray-200/80 dark:border-gray-800 backdrop-blur-md bg-white/80 dark:bg-[#0c1220]/80 shrink-0">
           <div className="flex h-16 items-center justify-between px-4 lg:px-8">
             <div className="flex items-center gap-3">
               <button
@@ -147,7 +147,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
-        <div className="p-4 lg:p-8 max-w-[1400px]">{children}</div>
+        <div className="p-4 lg:p-8 max-w-[1400px] flex-1">{children}</div>
       </main>
     </div>
   );

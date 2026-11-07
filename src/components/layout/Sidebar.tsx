@@ -127,7 +127,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       <aside
         id="sidebar"
         aria-label="Menú de navegación"
-        className={`fixed left-0 top-0 z-50 flex h-screen w-[295px] flex-col bg-white dark:bg-[#141c2e] border-r border-gray-200/80 dark:border-gray-800 transition-transform duration-300 ease-out lg:translate-x-0 lg:static lg:z-auto ${
+        className={`fixed left-0 top-0 z-50 flex h-screen w-[295px] flex-col bg-white dark:bg-[#141c2e] border-r border-gray-200/80 dark:border-gray-800 transition-transform duration-300 ease-out lg:translate-x-0 lg:static lg:h-full lg:shrink-0 lg:z-30 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
