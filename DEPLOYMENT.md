@@ -113,6 +113,11 @@ Agrega la variable:
 | `SMTP_PASS` | Contraseña de aplicación o token |
 | `SMTP_FROM` | `"Sistema Asistencia <notificaciones@casitadetareas.com>"` |
 
+#### D. Variable de Seguridad para Cron Jobs:
+| Variable | Descripción / Ejemplo |
+| :--- | :--- |
+| `CRON_SECRET` | Cadena aleatoria segura para autenticar `/api/cron/*` en Vercel |
+
 ### 2.3. Ejecutar Despliegue
 1. Haz clic en **Deploy**.
 2. Vercel compilará la aplicación con Next.js y Turbopack.
@@ -124,7 +129,7 @@ Agrega la variable:
 
 ### 3.1. Primer Inicio de Sesión y Super Administrador
 1. Abre la aplicación desplegada en Vercel.
-2. Si aún no existe el usuario, créalo en Firebase Authentication (o mediante `/api/seed` si está habilitado).
+2. Si aún no existe el usuario, créalo en **Firebase Console > Authentication > Users**.
 3. Asegúrate de que el correo coincida con el valor configurado en `NEXT_PUBLIC_ADMIN_EMAIL` (por ejemplo `admin@casitadetareas.com`).
 4. Al iniciar sesión, el sistema le asignará automáticamente el rol `super_admin` en su perfil de Firestore, otorgando acceso completo al panel de control, gestión de personal, configuración y correcciones.
 

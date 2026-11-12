@@ -1,99 +1,58 @@
-# Sistema de Gestión de Asistencia - Institución Infantil
+# Sistema de Gestión de Asistencia — Casita de Tareas
 
-Plataforma web moderna y progresiva (PWA) para el control digital integral de asistencia de niños, profesores y practicantes. Diseñada para operar en tiempo real y reemplazar planillas físicas.
+Plataforma web progresiva (**PWA**) para el control digital integral de asistencia de niños, profesores y practicantes, emisión de certificaciones institucionales, reportes estadísticos y auditoría en tiempo real.
 
-Desplegado en producción en **Vercel** y respaldado por la infraestructura de **Google Firebase**.
+Desplegado en **Vercel** y respaldado por **Google Firebase**.
 
 ---
 
 ## Características Principales
 
-- **PWA Instalable:** Funciona como aplicación nativa en dispositivos móviles (Android/iOS) y computadoras de escritorio.
-- **Asistencia de Niños:** Marcado rápido por grupos/jornadas, detección de inasistencias y autocierre programado.
-- **Asistencia de Personal Docente y Practicantes:** Registro con firma digital táctil en pantalla y verificación horaria.
-- **Flujo Avanzado de Correcciones:** Los operadores pueden solicitar correcciones de estado justificadas; los administradores pueden aprobar y aplicar el cambio con un solo clic o reiniciar registros.
-- **Historial y Auditoría Completa:** Registro inmutable de cada acción (creación, edición, corrección, usuario responsable e IP).
-- **Reportes y Estadísticas:** Gráficas en tiempo real, desglose mensual/anual y exportación a Excel (.xlsx) y PDF.
-- **Seguridad y Control de Roles:** Autenticación robusta y control de acceso basado en roles (`super_admin`, `admin`, `operator`).
-- **Modo Claro / Modo Oscuro:** Interfaz optimizada con Tailwind CSS y soporte de accesibilidad.
+- **PWA Instalable con Identidad Oficial:** Funciona como aplicación en Android, iOS y escritorio con el logotipo y favicon de **Casita de Tareas**.
+- **Asistencia de Niños y Personal:** Marcado rápido por grupos/jornadas para niños y registro con firma digital táctil para profesores y practicantes.
+- **Justificaciones y Correcciones:** Los operadores pueden solicitar correcciones justificadas; el Super Administrador aprueba o rechaza desde un panel centralizado con notificaciones en tiempo real.
+- **Centro de Certificados y Constancias:** Generación en PDF con vista previa para niños, practicantes y profesores, calculando días hábiles reales y excluyendo festivos colombianos.
+- **Reportes Consolidados y por Rango de Fechas:** Gráficas interactivas, exportación a Excel (`.xlsx`), CSV y **PDF de 1 sola hoja** por niño y rango *Desde — Hasta* (solo Lunes a Viernes, sin sábados, domingos ni festivos), con atribución automática del usuario en sesión.
+- **Automatizaciones Programadas (Cron Jobs):** Cierre diario automático de jornadas y envío de reporte de inasistencias por correo SMTP.
+- **Auditoría y Control de Roles:** Roles `super_admin` y `operator`, bitácora inmutable y modo Claro/Oscuro.
+
+---
+
+## Documentación del Proyecto
+
+| Documento | Descripción |
+| :--- | :--- |
+| **[Manual de Usuario (USER_MANUAL.md)](./USER_MANUAL.md)** | Guía paso a paso para Operadores y Super Administradores. |
+| **[Manual Técnico (TECHNICAL_MANUAL.md)](./TECHNICAL_MANUAL.md)** | Arquitectura, modelo de datos en Firestore, roles, Cron Jobs y PWA. |
+| **[Guía de Despliegue (DEPLOYMENT.md)](./DEPLOYMENT.md)** | Configuración de Firebase, Vercel, CORS y variables de entorno. |
+| **[Política de Seguridad (SECURITY.md)](./SECURITY.md)** | Manejo de secretos, control de acceso y protección de datos. |
+| **[Checklist de Entrega y UAT (DELIVERY_CHECKLIST.md)](./DELIVERY_CHECKLIST.md)** | Pruebas de aceptación, verificación pre-entrega y mantenimiento anual. |
 
 ---
 
 ## Tecnologías Utilizadas
 
-- **Framework Web:** [Next.js 16 (App Router)](https://nextjs.org/) con React 19 y TypeScript.
-- **Estilos e Iconos:** [Tailwind CSS 4](https://tailwindcss.com/) y [Heroicons](https://heroicons.com/).
-- **Plataforma Backend:** [Google Firebase](https://firebase.google.com/):
-  - **Firebase Authentication:** Gestión de cuentas y sesiones seguras.
-  - **Cloud Firestore:** Base de datos NoSQL reactiva en tiempo real con reglas de seguridad granulares.
-  - **Firebase Storage:** Almacenamiento seguro de fotos y firmas digitales.
-  - **Firebase Admin SDK:** Operaciones privilegiadas desde Serverless Functions.
-- **Notificaciones por Correo:** [Nodemailer](https://nodemailer.com/) con soporte para cualquier proveedor SMTP.
-- **Plataforma de Despliegue:** [Vercel](https://vercel.com/) con CI/CD automatizado en cada commit a `main`.
+- **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, Heroicons, Recharts.
+- **Backend / BaaS:** Google Firebase (Authentication, Cloud Firestore, Firebase Storage, Firebase Admin SDK).
+- **Documentos y Correo:** jsPDF, jspdf-autotable, SheetJS (`xlsx`), Nodemailer.
+- **Infraestructura:** Vercel (Serverless Functions & Cron Jobs).
 
 ---
 
 ## Inicio Rápido (Desarrollo Local)
 
-### 1. Clonar el Repositorio
-```bash
-git clone https://github.com/AnderHolden/sistema-asistencia.git
-cd sistema-asistencia
-```
-
-### 2. Instalar Dependencias
-```bash
-npm install
-```
-
-### 3. Configurar Variables de Entorno
-Copia la plantilla `.env.example` a `.env.local`:
-```bash
-cp .env.example .env.local
-```
-Completa las variables con las credenciales de tu proyecto de Firebase.
-
-### 4. Iniciar Servidor de Desarrollo
-```bash
-npm run dev
-```
-La aplicación estará disponible en [http://localhost:3000](http://localhost:3000).
-
----
-
-## Despliegue en Producción (Vercel)
-
-La guía detallada paso a paso para desplegar en **Vercel** y vincular **Firebase** se encuentra en:
-📖 **[Guía de Despliegue en Producción (DEPLOYMENT.md)](./DEPLOYMENT.md)**
-
----
-
-## Estructura del Proyecto
-
-```
-sistema-asistencia/
-├── firestore.rules        # Reglas de seguridad de Cloud Firestore
-├── cors.json              # Configuración CORS para Firebase Storage
-├── DEPLOYMENT.md          # Manual de despliegue en Vercel y Firebase
-├── .env.example           # Plantilla documentada de variables de entorno
-└── src/
-    ├── app/               # Páginas y API Routes (Next.js App Router)
-    │   ├── attendance/    # Páginas de asistencia (niños, personal, histórico)
-    │   ├── corrections/   # Panel administrativo de correcciones
-    │   ├── children/      # Gestión de niños matriculados
-    │   ├── teachers/      # Gestión de profesores
-    │   ├── practitioners/ # Gestión de practicantes
-    │   ├── groups/        # Gestión de grupos y salones
-    │   ├── reports/       # Reportes y exportación
-    │   ├── settings/      # Configuración del sistema
-    │   └── api/           # Endpoints del servidor (upload, email, users)
-    ├── components/        # Componentes UI reutilizables
-    ├── lib/               # Clientes Firebase, utilidades y servicios
-    └── types/             # Definiciones de tipos TypeScript
-```
-
----
-
-## Licencia
-
-Este proyecto está bajo la Licencia MIT.
+1. Clonar el repositorio e instalar dependencias:
+   ```bash
+   git clone https://github.com/AnderHolden/sistema-asistencia.git
+   cd sistema-asistencia
+   npm install
+   ```
+2. Copiar `.env.example` a `.env.local` y completar las credenciales de Firebase, SMTP y `CRON_SECRET`:
+   ```bash
+   cp .env.example .env.local
+   ```
+3. Iniciar servidor de desarrollo:
+   ```bash
+   npm run dev
+   ```
+   Disponible en [http://localhost:3000](http://localhost:3000).
