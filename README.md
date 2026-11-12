@@ -56,3 +56,27 @@ Desplegado en **Vercel** y respaldado por **Google Firebase**.
    npm run dev
    ```
    Disponible en [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Documentación de Entrega
+
+- [Especificación de Requerimientos](./docs/REQUERIMIENTOS.md)
+- [Matriz de Pruebas](./docs/MATRIZ_PRUEBAS.md)
+- [Acta de Entrega](./docs/ACTA_ENTREGA.md)
+
+---
+
+## Créditos y Equipo de Desarrollo
+
+- **Líder del proyecto:** Iván Andrés Urbano Rivera — Practicante / Desarrollador de Software
+- **Equipo de apoyo:**
+  - Gissela Soraya Dueñas Madroñero — Practicante
+  - Lizeth Vanessa Muñoz Erazo — Practicante
+  - Jenedith Meliza Paz Maya — Practicante
+
+---
+
+## Licencia
+
+Este proyecto está bajo la Licencia MIT.
